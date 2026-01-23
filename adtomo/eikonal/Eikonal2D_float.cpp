@@ -88,18 +88,33 @@ void forward(double *u, const double *f, int m, int n, double h, double x, doubl
     }
   }
 
-  // Option 1: interpolate sqrt((x-ix0*h)*(x-ix0*h)+(y-jx0*h)*(y-jx0*h)) to u[ix0 * (n + 1) + jx0] =
-  // u[ix0 * (n + 1) + jx0] = sqrt((x - ix0) * (x - ix0) + (y - jx0) * (y - jx0)) * h * f[ix0 * (n + 1) + jx0];
-  // u[ix1 * (n + 1) + jx0] = sqrt((x - ix1) * (x - ix1) + (y - jx0) * (y - jx0)) * h * f[ix1 * (n + 1) + jx0];
-  // u[ix0 * (n + 1) + jx1] = sqrt((x - ix0) * (x - ix0) + (y - jx1) * (y - jx1)) * h * f[ix0 * (n + 1) + jx1];
-  // u[ix1 * (n + 1) + jx1] = sqrt((x - ix1) * (x - ix1) + (y - jx1) * (y - jx1)) * h * f[ix1 * (n + 1) + jx1];
-  
-  // Option 2: choose the center slowness value
-  double fcenter = (f[ix0 * (n + 1) + jx0] + f[ix1 * (n + 1) + jx0] + f[ix0 * (n + 1) + jx1] + f[ix1 * (n + 1) + jx1]) / 4.0;
-  u[ix0 * (n + 1) + jx0] = sqrt((x - ix0) * (x - ix0) + (y - jx0) * (y - jx0)) * h * fcenter;
-  u[ix1 * (n + 1) + jx0] = sqrt((x - ix1) * (x - ix1) + (y - jx0) * (y - jx0)) * h * fcenter;
-  u[ix0 * (n + 1) + jx1] = sqrt((x - ix0) * (x - ix0) + (y - jx1) * (y - jx1)) * h * fcenter;
-  u[ix1 * (n + 1) + jx1] = sqrt((x - ix1) * (x - ix1) + (y - jx1) * (y - jx1)) * h * fcenter;
+  // Simpson's Rule t = (d/6) * (f_src + 4*f_mid + f_tgt)
+  double f00 = f[ix0 * (n + 1) + jx0];
+  double f10 = f[ix1 * (n + 1) + jx0];
+  double f01 = f[ix0 * (n + 1) + jx1];
+  double f11 = f[ix1 * (n + 1) + jx1];
+
+  // Bilinear interpolation at source position
+  double wx = x - ix0;
+  double wy = y - jx0;
+  double fsrc = (1-wx)*(1-wy)*f00 + wx*(1-wy)*f10 + (1-wx)*wy*f01 + wx*wy*f11;
+
+  // Slowness at the center of the grid cell
+  double fmid = (f00 + f10 + f01 + f11) / 4.0;
+
+  // Traveltimes to each corner using Simpson's Rule
+  double d00 = sqrt((x - ix0) * (x - ix0) + (y - jx0) * (y - jx0)) * h;
+  u[ix0 * (n + 1) + jx0] = (d00 / 6.0) * (fsrc + 4.0 * fmid + f00);
+
+  double d10 = sqrt((x - ix1) * (x - ix1) + (y - jx0) * (y - jx0)) * h;
+  u[ix1 * (n + 1) + jx0] = (d10 / 6.0) * (fsrc + 4.0 * fmid + f10);
+
+  double d01 = sqrt((x - ix0) * (x - ix0) + (y - jx1) * (y - jx1)) * h;
+  u[ix0 * (n + 1) + jx1] = (d01 / 6.0) * (fsrc + 4.0 * fmid + f01);
+
+  double d11 = sqrt((x - ix1) * (x - ix1) + (y - jx1) * (y - jx1)) * h;
+  u[ix1 * (n + 1) + jx1] = (d11 / 6.0) * (fsrc + 4.0 * fmid + f11);
+
 
 
   std::vector<int> I, J, iI, iJ;
@@ -161,12 +176,6 @@ void backward(
   {
     dFdf[i] = -2 * f[i] * h * h;
   }
-
-  // Option 1: 
-  // dFdf[ix0 * (n + 1) + jx0] = -sqrt((x - ix0) * (x - ix0) + (y - jx0) * (y - jx0)) * h;
-  // dFdf[ix1 * (n + 1) + jx0] = -sqrt((x - ix1) * (x - ix1) + (y - jx0) * (y - jx0)) * h;
-  // dFdf[ix0 * (n + 1) + jx1] = -sqrt((x - ix0) * (x - ix0) + (y - jx1) * (y - jx1)) * h;
-  // dFdf[ix1 * (n + 1) + jx1] = -sqrt((x - ix1) * (x - ix1) + (y - jx1) * (y - jx1)) * h;
 
   std::vector<T> triplets;
 
@@ -275,16 +284,46 @@ void backward(
     grad_f[i] = -res[i] * dFdf[i];
   }
   
-  // Option 2: choose the center slowness value
-  double grad00 = (res[ix0 * (n + 1) + jx0] * sqrt((x - ix0) * (x - ix0) + (y - jx0) * (y - jx0)) * h
-  + res[ix1 * (n + 1) + jx0] * sqrt((x - ix1) * (x - ix1) + (y - jx0) * (y - jx0)) * h
-  + res[ix0 * (n + 1) + jx1] * sqrt((x - ix0) * (x - ix0) + (y - jx1) * (y - jx1)) * h
-  + res[ix1 * (n + 1) + jx1] * sqrt((x - ix1) * (x - ix1) + (y - jx1) * (y - jx1)) * h) / 4.0;
+  // Simpson's Rule gradient
+  // u_ij = (d_ij/6) * (fsrc + 4*fmid + ftgt)
+  // ∂u_ij/∂f_kl = (d_ij/6) * (w_kl + 1 + δ_{ij,kl}) where w_kl is bilinear weight
+  double wx = x - ix0;
+  double wy = y - jx0;
+  double w00 = (1-wx)*(1-wy);
+  double w10 = wx*(1-wy);
+  double w01 = (1-wx)*wy;
+  double w11 = wx*wy;
 
-  grad_f[ix0 * (n + 1) + jx0] = grad00;
-  grad_f[ix1 * (n + 1) + jx0] = grad00;
-  grad_f[ix0 * (n + 1) + jx1] = grad00;
-  grad_f[ix1 * (n + 1) + jx1] = grad00;
+  double res00 = res[ix0 * (n + 1) + jx0];
+  double res10 = res[ix1 * (n + 1) + jx0];
+  double res01 = res[ix0 * (n + 1) + jx1];
+  double res11 = res[ix1 * (n + 1) + jx1];
+
+  double d00 = sqrt((x - ix0) * (x - ix0) + (y - jx0) * (y - jx0)) * h;
+  double d10 = sqrt((x - ix1) * (x - ix1) + (y - jx0) * (y - jx0)) * h;
+  double d01 = sqrt((x - ix0) * (x - ix0) + (y - jx1) * (y - jx1)) * h;
+  double d11 = sqrt((x - ix1) * (x - ix1) + (y - jx1) * (y - jx1)) * h;
+
+  // grad_f[kl] = Σ_ij res_ij * (d_ij/6) * (w_kl + 1 + δ_{ij,kl})
+  grad_f[ix0 * (n + 1) + jx0] = (res00 * d00 * (w00 + 1 + 1)
+                               + res10 * d10 * (w00 + 1)
+                               + res01 * d01 * (w00 + 1)
+                               + res11 * d11 * (w00 + 1)) / 6.0;
+
+  grad_f[ix1 * (n + 1) + jx0] = (res00 * d00 * (w10 + 1)
+                               + res10 * d10 * (w10 + 1 + 1)
+                               + res01 * d01 * (w10 + 1)
+                               + res11 * d11 * (w10 + 1)) / 6.0;
+
+  grad_f[ix0 * (n + 1) + jx1] = (res00 * d00 * (w01 + 1)
+                               + res10 * d10 * (w01 + 1)
+                               + res01 * d01 * (w01 + 1 + 1)
+                               + res11 * d11 * (w01 + 1)) / 6.0;
+
+  grad_f[ix1 * (n + 1) + jx1] = (res00 * d00 * (w11 + 1)
+                               + res10 * d10 * (w11 + 1)
+                               + res01 * d01 * (w11 + 1)
+                               + res11 * d11 * (w11 + 1 + 1)) / 6.0;
 
 }
 

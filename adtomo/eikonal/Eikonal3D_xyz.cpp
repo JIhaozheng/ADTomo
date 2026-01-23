@@ -100,26 +100,53 @@ void forward(double *u, const double *f, double h,
     {
         u[i] = 100000.0;
     }
-    // Option 1: interpolattion
-    // u(ix0, jx0, kx0) = sqrt((x - ix0) * (x - ix0) + (y - jx0) * (y - jx0) + (z - kx0) * (z - kx0)) * h * f(ix0, jx0, kx0);
-    // u(ix0, jx0, kx1) = sqrt((x - ix0) * (x - ix0) + (y - jx0) * (y - jx0) + (z - kx1) * (z - kx1)) * h * f(ix0, jx0, kx1);
-    // u(ix0, jx1, kx0) = sqrt((x - ix0) * (x - ix0) + (y - jx1) * (y - jx1) + (z - kx0) * (z - kx0)) * h * f(ix0, jx1, kx0);
-    // u(ix0, jx1, kx1) = sqrt((x - ix0) * (x - ix0) + (y - jx1) * (y - jx1) + (z - kx1) * (z - kx1)) * h * f(ix0, jx1, kx1);
-    // u(ix1, jx0, kx0) = sqrt((x - ix1) * (x - ix1) + (y - jx0) * (y - jx0) + (z - kx0) * (z - kx0)) * h * f(ix1, jx0, kx0);
-    // u(ix1, jx0, kx1) = sqrt((x - ix1) * (x - ix1) + (y - jx0) * (y - jx0) + (z - kx1) * (z - kx1)) * h * f(ix1, jx0, kx1);
-    // u(ix1, jx1, kx0) = sqrt((x - ix1) * (x - ix1) + (y - jx1) * (y - jx1) + (z - kx0) * (z - kx0)) * h * f(ix1, jx1, kx0);
-    // u(ix1, jx1, kx1) = sqrt((x - ix1) * (x - ix1) + (y - jx1) * (y - jx1) + (z - kx1) * (z - kx1)) * h * f(ix1, jx1, kx1);
 
-    // Option 2: choose the center slowness value
-    double fcenter = (f(ix0, jx0, kx0) + f(ix0, jx0, kx1) + f(ix0, jx1, kx0) + f(ix0, jx1, kx1) + f(ix1, jx0, kx0) + f(ix1, jx0, kx1) + f(ix1, jx1, kx0) + f(ix1, jx1, kx1)) / 8.0;
-    u(ix0, jx0, kx0) = sqrt((x - ix0) * (x - ix0) + (y - jx0) * (y - jx0) + (z - kx0) * (z - kx0)) * h * fcenter;
-    u(ix0, jx0, kx1) = sqrt((x - ix0) * (x - ix0) + (y - jx0) * (y - jx0) + (z - kx1) * (z - kx1)) * h * fcenter;
-    u(ix0, jx1, kx0) = sqrt((x - ix0) * (x - ix0) + (y - jx1) * (y - jx1) + (z - kx0) * (z - kx0)) * h * fcenter;
-    u(ix0, jx1, kx1) = sqrt((x - ix0) * (x - ix0) + (y - jx1) * (y - jx1) + (z - kx1) * (z - kx1)) * h * fcenter;
-    u(ix1, jx0, kx0) = sqrt((x - ix1) * (x - ix1) + (y - jx0) * (y - jx0) + (z - kx0) * (z - kx0)) * h * fcenter;
-    u(ix1, jx0, kx1) = sqrt((x - ix1) * (x - ix1) + (y - jx0) * (y - jx0) + (z - kx1) * (z - kx1)) * h * fcenter;
-    u(ix1, jx1, kx0) = sqrt((x - ix1) * (x - ix1) + (y - jx1) * (y - jx1) + (z - kx0) * (z - kx0)) * h * fcenter;
-    u(ix1, jx1, kx1) = sqrt((x - ix1) * (x - ix1) + (y - jx1) * (y - jx1) + (z - kx1) * (z - kx1)) * h * fcenter;
+    // Simpson's Rule t = (d/6) * (f_src + 4*f_mid + f_tgt)
+    double f000 = f(ix0, jx0, kx0);
+    double f001 = f(ix0, jx0, kx1);
+    double f010 = f(ix0, jx1, kx0);
+    double f011 = f(ix0, jx1, kx1);
+    double f100 = f(ix1, jx0, kx0);
+    double f101 = f(ix1, jx0, kx1);
+    double f110 = f(ix1, jx1, kx0);
+    double f111 = f(ix1, jx1, kx1);
+
+    // Trilinear interpolation weights at source
+    double wx = x - ix0;
+    double wy = y - jx0;
+    double wz = z - kx0;
+    double fsrc = (1-wx)*(1-wy)*(1-wz)*f000 + (1-wx)*(1-wy)*wz*f001
+                + (1-wx)*wy*(1-wz)*f010 + (1-wx)*wy*wz*f011
+                + wx*(1-wy)*(1-wz)*f100 + wx*(1-wy)*wz*f101
+                + wx*wy*(1-wz)*f110 + wx*wy*wz*f111;
+
+    // Slowness at the center of the grid cell
+    double fmid = (f000 + f001 + f010 + f011 + f100 + f101 + f110 + f111) / 8.0;
+
+    // Traveltimes to each corner using Simpson's Rule
+    double d000 = sqrt((x - ix0) * (x - ix0) + (y - jx0) * (y - jx0) + (z - kx0) * (z - kx0)) * h;
+    u(ix0, jx0, kx0) = (d000 / 6.0) * (fsrc + 4.0 * fmid + f000);
+
+    double d001 = sqrt((x - ix0) * (x - ix0) + (y - jx0) * (y - jx0) + (z - kx1) * (z - kx1)) * h;
+    u(ix0, jx0, kx1) = (d001 / 6.0) * (fsrc + 4.0 * fmid + f001);
+
+    double d010 = sqrt((x - ix0) * (x - ix0) + (y - jx1) * (y - jx1) + (z - kx0) * (z - kx0)) * h;
+    u(ix0, jx1, kx0) = (d010 / 6.0) * (fsrc + 4.0 * fmid + f010);
+
+    double d011 = sqrt((x - ix0) * (x - ix0) + (y - jx1) * (y - jx1) + (z - kx1) * (z - kx1)) * h;
+    u(ix0, jx1, kx1) = (d011 / 6.0) * (fsrc + 4.0 * fmid + f011);
+
+    double d100 = sqrt((x - ix1) * (x - ix1) + (y - jx0) * (y - jx0) + (z - kx0) * (z - kx0)) * h;
+    u(ix1, jx0, kx0) = (d100 / 6.0) * (fsrc + 4.0 * fmid + f100);
+
+    double d101 = sqrt((x - ix1) * (x - ix1) + (y - jx0) * (y - jx0) + (z - kx1) * (z - kx1)) * h;
+    u(ix1, jx0, kx1) = (d101 / 6.0) * (fsrc + 4.0 * fmid + f101);
+
+    double d110 = sqrt((x - ix1) * (x - ix1) + (y - jx1) * (y - jx1) + (z - kx0) * (z - kx0)) * h;
+    u(ix1, jx1, kx0) = (d110 / 6.0) * (fsrc + 4.0 * fmid + f110);
+
+    double d111 = sqrt((x - ix1) * (x - ix1) + (y - jx1) * (y - jx1) + (z - kx1) * (z - kx1)) * h;
+    u(ix1, jx1, kx1) = (d111 / 6.0) * (fsrc + 4.0 * fmid + f111);
 
     auto u_old = new double[m * n * l];
     for (int i = 0; i < 20; i++)
@@ -163,18 +190,6 @@ void backward(
     {
         rhs[i] = -2 * f[i] * h * h;
     }
-
-    // Option 1: overwrite the boundary
-    // ix, jx, kx are different points, otherwise should use += to accumulate gradients
-    // differentiate overwriting or accumulating gradients
-    // rhs[get_id(ix0, jx0, kx0)] = -sqrt((x - ix0) * (x - ix0) + (y - jx0) * (y - jx0) + (z - kx0) * (z - kx0)) * h;
-    // rhs[get_id(ix0, jx0, kx1)] = -sqrt((x - ix0) * (x - ix0) + (y - jx0) * (y - jx0) + (z - kx1) * (z - kx1)) * h;
-    // rhs[get_id(ix0, jx1, kx0)] = -sqrt((x - ix0) * (x - ix0) + (y - jx1) * (y - jx1) + (z - kx0) * (z - kx0)) * h;
-    // rhs[get_id(ix0, jx1, kx1)] = -sqrt((x - ix0) * (x - ix0) + (y - jx1) * (y - jx1) + (z - kx1) * (z - kx1)) * h;
-    // rhs[get_id(ix1, jx0, kx0)] = -sqrt((x - ix1) * (x - ix1) + (y - jx0) * (y - jx0) + (z - kx0) * (z - kx0)) * h;
-    // rhs[get_id(ix1, jx0, kx1)] = -sqrt((x - ix1) * (x - ix1) + (y - jx0) * (y - jx0) + (z - kx1) * (z - kx1)) * h;
-    // rhs[get_id(ix1, jx1, kx0)] = -sqrt((x - ix1) * (x - ix1) + (y - jx1) * (y - jx1) + (z - kx0) * (z - kx0)) * h;
-    // rhs[get_id(ix1, jx1, kx1)] = -sqrt((x - ix1) * (x - ix1) + (y - jx1) * (y - jx1) + (z - kx1) * (z - kx1)) * h;
 
     std::vector<T> triplets;
     std::set<int> zero_id;
@@ -282,25 +297,111 @@ void backward(
         grad_f[i] = -res[i] * rhs[i];
     }
 
-    // Option 2: choose the center slowness value
-    double grad000 = (
-        res[get_id(ix0, jx0, kx0)] * sqrt((x - ix0) * (x - ix0) + (y - jx0) * (y - jx0) + (z - kx0) * (z - kx0)) * h
-        + res[get_id(ix0, jx0, kx1)] * sqrt((x - ix0) * (x - ix0) + (y - jx0) * (y - jx0) + (z - kx1) * (z - kx1)) * h
-        + res[get_id(ix0, jx1, kx0)] * sqrt((x - ix0) * (x - ix0) + (y - jx1) * (y - jx1) + (z - kx0) * (z - kx0)) * h
-        + res[get_id(ix0, jx1, kx1)] * sqrt((x - ix0) * (x - ix0) + (y - jx1) * (y - jx1) + (z - kx1) * (z - kx1)) * h
-        + res[get_id(ix1, jx0, kx0)] * sqrt((x - ix1) * (x - ix1) + (y - jx0) * (y - jx0) + (z - kx0) * (z - kx0)) * h
-        + res[get_id(ix1, jx0, kx1)] * sqrt((x - ix1) * (x - ix1) + (y - jx0) * (y - jx0) + (z - kx1) * (z - kx1)) * h
-        + res[get_id(ix1, jx1, kx0)] * sqrt((x - ix1) * (x - ix1) + (y - jx1) * (y - jx1) + (z - kx0) * (z - kx0)) * h
-        + res[get_id(ix1, jx1, kx1)] * sqrt((x - ix1) * (x - ix1) + (y - jx1) * (y - jx1) + (z - kx1) * (z - kx1)) * h
-    ) / 8.0;
-    grad_f[get_id(ix0, jx0, kx0)] = grad000;
-    grad_f[get_id(ix0, jx0, kx1)] = grad000;
-    grad_f[get_id(ix0, jx1, kx0)] = grad000;
-    grad_f[get_id(ix0, jx1, kx1)] = grad000;
-    grad_f[get_id(ix1, jx0, kx0)] = grad000;
-    grad_f[get_id(ix1, jx0, kx1)] = grad000;
-    grad_f[get_id(ix1, jx1, kx0)] = grad000;
-    grad_f[get_id(ix1, jx1, kx1)] = grad000;
+    // Option 3: Simpson's Rule gradient
+    // u_ijk = (d_ijk/6) * (fsrc + 4*fmid + ftgt)
+    // ∂u_ijk/∂f_lmn = (d_ijk/6) * (w_lmn + 0.5 + δ_{ijk,lmn}) where w_lmn is trilinear weight
+    double wx = x - ix0;
+    double wy = y - jx0;
+    double wz = z - kx0;
+    double w000 = (1-wx)*(1-wy)*(1-wz);
+    double w001 = (1-wx)*(1-wy)*wz;
+    double w010 = (1-wx)*wy*(1-wz);
+    double w011 = (1-wx)*wy*wz;
+    double w100 = wx*(1-wy)*(1-wz);
+    double w101 = wx*(1-wy)*wz;
+    double w110 = wx*wy*(1-wz);
+    double w111 = wx*wy*wz;
+
+    double res000 = res[get_id(ix0, jx0, kx0)];
+    double res001 = res[get_id(ix0, jx0, kx1)];
+    double res010 = res[get_id(ix0, jx1, kx0)];
+    double res011 = res[get_id(ix0, jx1, kx1)];
+    double res100 = res[get_id(ix1, jx0, kx0)];
+    double res101 = res[get_id(ix1, jx0, kx1)];
+    double res110 = res[get_id(ix1, jx1, kx0)];
+    double res111 = res[get_id(ix1, jx1, kx1)];
+
+    double d000 = sqrt((x - ix0) * (x - ix0) + (y - jx0) * (y - jx0) + (z - kx0) * (z - kx0)) * h;
+    double d001 = sqrt((x - ix0) * (x - ix0) + (y - jx0) * (y - jx0) + (z - kx1) * (z - kx1)) * h;
+    double d010 = sqrt((x - ix0) * (x - ix0) + (y - jx1) * (y - jx1) + (z - kx0) * (z - kx0)) * h;
+    double d011 = sqrt((x - ix0) * (x - ix0) + (y - jx1) * (y - jx1) + (z - kx1) * (z - kx1)) * h;
+    double d100 = sqrt((x - ix1) * (x - ix1) + (y - jx0) * (y - jx0) + (z - kx0) * (z - kx0)) * h;
+    double d101 = sqrt((x - ix1) * (x - ix1) + (y - jx0) * (y - jx0) + (z - kx1) * (z - kx1)) * h;
+    double d110 = sqrt((x - ix1) * (x - ix1) + (y - jx1) * (y - jx1) + (z - kx0) * (z - kx0)) * h;
+    double d111 = sqrt((x - ix1) * (x - ix1) + (y - jx1) * (y - jx1) + (z - kx1) * (z - kx1)) * h;
+
+    // grad_f[lmn] = Σ_ijk res_ijk * (d_ijk/6) * (w_lmn + 0.5 + δ_{ijk,lmn})
+    grad_f[get_id(ix0, jx0, kx0)] = (res000 * d000 * (w000 + 0.5 + 1)
+                                   + res001 * d001 * (w000 + 0.5)
+                                   + res010 * d010 * (w000 + 0.5)
+                                   + res011 * d011 * (w000 + 0.5)
+                                   + res100 * d100 * (w000 + 0.5)
+                                   + res101 * d101 * (w000 + 0.5)
+                                   + res110 * d110 * (w000 + 0.5)
+                                   + res111 * d111 * (w000 + 0.5)) / 6.0;
+
+    grad_f[get_id(ix0, jx0, kx1)] = (res000 * d000 * (w001 + 0.5)
+                                   + res001 * d001 * (w001 + 0.5 + 1)
+                                   + res010 * d010 * (w001 + 0.5)
+                                   + res011 * d011 * (w001 + 0.5)
+                                   + res100 * d100 * (w001 + 0.5)
+                                   + res101 * d101 * (w001 + 0.5)
+                                   + res110 * d110 * (w001 + 0.5)
+                                   + res111 * d111 * (w001 + 0.5)) / 6.0;
+
+    grad_f[get_id(ix0, jx1, kx0)] = (res000 * d000 * (w010 + 0.5)
+                                   + res001 * d001 * (w010 + 0.5)
+                                   + res010 * d010 * (w010 + 0.5 + 1)
+                                   + res011 * d011 * (w010 + 0.5)
+                                   + res100 * d100 * (w010 + 0.5)
+                                   + res101 * d101 * (w010 + 0.5)
+                                   + res110 * d110 * (w010 + 0.5)
+                                   + res111 * d111 * (w010 + 0.5)) / 6.0;
+
+    grad_f[get_id(ix0, jx1, kx1)] = (res000 * d000 * (w011 + 0.5)
+                                   + res001 * d001 * (w011 + 0.5)
+                                   + res010 * d010 * (w011 + 0.5)
+                                   + res011 * d011 * (w011 + 0.5 + 1)
+                                   + res100 * d100 * (w011 + 0.5)
+                                   + res101 * d101 * (w011 + 0.5)
+                                   + res110 * d110 * (w011 + 0.5)
+                                   + res111 * d111 * (w011 + 0.5)) / 6.0;
+
+    grad_f[get_id(ix1, jx0, kx0)] = (res000 * d000 * (w100 + 0.5)
+                                   + res001 * d001 * (w100 + 0.5)
+                                   + res010 * d010 * (w100 + 0.5)
+                                   + res011 * d011 * (w100 + 0.5)
+                                   + res100 * d100 * (w100 + 0.5 + 1)
+                                   + res101 * d101 * (w100 + 0.5)
+                                   + res110 * d110 * (w100 + 0.5)
+                                   + res111 * d111 * (w100 + 0.5)) / 6.0;
+
+    grad_f[get_id(ix1, jx0, kx1)] = (res000 * d000 * (w101 + 0.5)
+                                   + res001 * d001 * (w101 + 0.5)
+                                   + res010 * d010 * (w101 + 0.5)
+                                   + res011 * d011 * (w101 + 0.5)
+                                   + res100 * d100 * (w101 + 0.5)
+                                   + res101 * d101 * (w101 + 0.5 + 1)
+                                   + res110 * d110 * (w101 + 0.5)
+                                   + res111 * d111 * (w101 + 0.5)) / 6.0;
+
+    grad_f[get_id(ix1, jx1, kx0)] = (res000 * d000 * (w110 + 0.5)
+                                   + res001 * d001 * (w110 + 0.5)
+                                   + res010 * d010 * (w110 + 0.5)
+                                   + res011 * d011 * (w110 + 0.5)
+                                   + res100 * d100 * (w110 + 0.5)
+                                   + res101 * d101 * (w110 + 0.5)
+                                   + res110 * d110 * (w110 + 0.5 + 1)
+                                   + res111 * d111 * (w110 + 0.5)) / 6.0;
+
+    grad_f[get_id(ix1, jx1, kx1)] = (res000 * d000 * (w111 + 0.5)
+                                   + res001 * d001 * (w111 + 0.5)
+                                   + res010 * d010 * (w111 + 0.5)
+                                   + res011 * d011 * (w111 + 0.5)
+                                   + res100 * d100 * (w111 + 0.5)
+                                   + res101 * d101 * (w111 + 0.5)
+                                   + res110 * d110 * (w111 + 0.5)
+                                   + res111 * d111 * (w111 + 0.5 + 1)) / 6.0;
 
 }
 
