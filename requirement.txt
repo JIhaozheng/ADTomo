@@ -1,0 +1,15 @@
+# Python >= 3.9 recommended
+# conda create -n adtomo python=3.9 -y
+# pip install -r Requirement.txt
+# python setup.py build_ext --inplace
+
+torch>=2.0
+numpy>=1.24
+pandas>=2.0
+matplotlib>=3.7
+
+# build C++ extensions
+ninja>=1.11
+pybind11>=2.10
+setuptools>=65
+wheel
