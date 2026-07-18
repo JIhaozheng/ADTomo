@@ -1,10 +1,9 @@
-// 3D continuous zero-flux FSM adjoint + source-corner (src) correction (same as Eikonal2D.cpp).
+// 3D continuous zero-flux FSM adjoint + source-corner (src) correction.
 
 #include <torch/extension.h>
 
 #include <Eigen/Core>
-#include <Eigen/SparseCore>
-#include <Eigen/SparseLU>
+#include <Eigen/Dense>
 
 #include <algorithm>
 #include <cmath>
@@ -13,16 +12,6 @@
 #include <tuple>
 #include <unordered_map>
 #include <vector>
-
-typedef Eigen::SparseMatrix<double> SpMat;
-typedef Eigen::Triplet<double> Trip;
-
-// Layout matches Eikonal3D.cpp / eikonal3d_op:
-//   f, u, grad_u : torch tensor shape (m, n, l), contiguous
-//   x, y, z      : source in grid-index coordinates (not physical metres)
-//   h            : grid spacing
-//
-// Default patch_radius=1 → only the 8 source-box corners are unknowns.
 
 static inline int gid(int i, int j, int k, int n, int l) {
     return i * n * l + j * l + k;
@@ -153,7 +142,7 @@ static inline bool is_source_corner(int i, int j, int k,
     return (i == ix0 || i == ix1) && (j == jx0 || j == jx1) && (k == kx0 || k == kx1);
 }
 
-// Normal-projected ∇(-T) toward source at source-box nodes (EikonalSolvers adjderivonsource).
+// Normal-projected ∇(-T) at source-box nodes.
 template <typename TAt>
 static void adjderivonsource(
     const TAt &T_at, int m, int n, int l, int i, int j, int k, double h,
@@ -338,7 +327,7 @@ static void solve_adjoint_fsm_0f_src(double *lambda, const double *T, const doub
     }
 }
 
-// Simpson corner overwrite using discrete patch residual (same formula as Eikonal3D.cpp).
+// Simpson weights from discrete patch residual at source corners.
 static void apply_source_simpson_grad_from_res(
     double *grad_f, const double *res,
     int m, int n, int l, double h, double x, double y, double z) {
@@ -383,54 +372,55 @@ static void apply_source_simpson_grad_from_res(
     double d111 = dist(ix1, jx1, kx1);
 
     grad_f[gid(ix0, jx0, kx0, n, l)] =
-        (res000 * d000 * (w000 + 0.5 + 1) + res001 * d001 * (w000 + 0.5) + res010 * d010 * (w000 + 0.5) +
+        (res000 * d000 * (w000 + 1.5) + res001 * d001 * (w000 + 0.5) + res010 * d010 * (w000 + 0.5) +
          res011 * d011 * (w000 + 0.5) + res100 * d100 * (w000 + 0.5) + res101 * d101 * (w000 + 0.5) +
          res110 * d110 * (w000 + 0.5) + res111 * d111 * (w000 + 0.5)) /
         6.0;
     grad_f[gid(ix0, jx0, kx1, n, l)] =
-        (res000 * d000 * (w001 + 0.5) + res001 * d001 * (w001 + 0.5 + 1) + res010 * d010 * (w001 + 0.5) +
+        (res000 * d000 * (w001 + 0.5) + res001 * d001 * (w001 + 1.5) + res010 * d010 * (w001 + 0.5) +
          res011 * d011 * (w001 + 0.5) + res100 * d100 * (w001 + 0.5) + res101 * d101 * (w001 + 0.5) +
          res110 * d110 * (w001 + 0.5) + res111 * d111 * (w001 + 0.5)) /
         6.0;
     grad_f[gid(ix0, jx1, kx0, n, l)] =
-        (res000 * d000 * (w010 + 0.5) + res001 * d001 * (w010 + 0.5) + res010 * d010 * (w010 + 0.5 + 1) +
+        (res000 * d000 * (w010 + 0.5) + res001 * d001 * (w010 + 0.5) + res010 * d010 * (w010 + 1.5) +
          res011 * d011 * (w010 + 0.5) + res100 * d100 * (w010 + 0.5) + res101 * d101 * (w010 + 0.5) +
          res110 * d110 * (w010 + 0.5) + res111 * d111 * (w010 + 0.5)) /
         6.0;
     grad_f[gid(ix0, jx1, kx1, n, l)] =
         (res000 * d000 * (w011 + 0.5) + res001 * d001 * (w011 + 0.5) + res010 * d010 * (w011 + 0.5) +
-         res011 * d011 * (w011 + 0.5 + 1) + res100 * d100 * (w011 + 0.5) + res101 * d101 * (w011 + 0.5) +
+         res011 * d011 * (w011 + 1.5) + res100 * d100 * (w011 + 0.5) + res101 * d101 * (w011 + 0.5) +
          res110 * d110 * (w011 + 0.5) + res111 * d111 * (w011 + 0.5)) /
         6.0;
     grad_f[gid(ix1, jx0, kx0, n, l)] =
         (res000 * d000 * (w100 + 0.5) + res001 * d001 * (w100 + 0.5) + res010 * d010 * (w100 + 0.5) +
-         res011 * d011 * (w100 + 0.5) + res100 * d100 * (w100 + 0.5 + 1) + res101 * d101 * (w100 + 0.5) +
+         res011 * d011 * (w100 + 0.5) + res100 * d100 * (w100 + 1.5) + res101 * d101 * (w100 + 0.5) +
          res110 * d110 * (w100 + 0.5) + res111 * d111 * (w100 + 0.5)) /
         6.0;
     grad_f[gid(ix1, jx0, kx1, n, l)] =
         (res000 * d000 * (w101 + 0.5) + res001 * d001 * (w101 + 0.5) + res010 * d010 * (w101 + 0.5) +
-         res011 * d011 * (w101 + 0.5) + res100 * d100 * (w101 + 0.5) + res101 * d101 * (w101 + 0.5 + 1) +
+         res011 * d011 * (w101 + 0.5) + res100 * d100 * (w101 + 0.5) + res101 * d101 * (w101 + 1.5) +
          res110 * d110 * (w101 + 0.5) + res111 * d111 * (w101 + 0.5)) /
         6.0;
     grad_f[gid(ix1, jx1, kx0, n, l)] =
         (res000 * d000 * (w110 + 0.5) + res001 * d001 * (w110 + 0.5) + res010 * d010 * (w110 + 0.5) +
          res011 * d011 * (w110 + 0.5) + res100 * d100 * (w110 + 0.5) + res101 * d101 * (w110 + 0.5) +
-         res110 * d110 * (w110 + 0.5 + 1) + res111 * d111 * (w110 + 0.5)) /
+         res110 * d110 * (w110 + 1.5) + res111 * d111 * (w110 + 0.5)) /
         6.0;
     grad_f[gid(ix1, jx1, kx1, n, l)] =
         (res000 * d000 * (w111 + 0.5) + res001 * d001 * (w111 + 0.5) + res010 * d010 * (w111 + 0.5) +
          res011 * d011 * (w111 + 0.5) + res100 * d100 * (w111 + 0.5) + res101 * d101 * (w111 + 0.5) +
-         res110 * d110 * (w111 + 0.5) + res111 * d111 * (w111 + 0.5 + 1)) /
+         res110 * d110 * (w111 + 0.5) + res111 * d111 * (w111 + 1.5)) /
         6.0;
 }
 
-// Assemble one Godunov Jacobian row for node (i,j,k) into triplets (same as Eikonal3D.cpp).
-static void append_godunov_row(
-    std::vector<Trip> &triplets, const double *u, int m, int n, int l,
+// Collect one Godunov Jacobian row as (col, val) pairs.
+static void collect_godunov_row(
+    std::vector<std::pair<int, double>> &entries, const double *u, int m, int n, int l,
     int i, int j, int k, int ix0, int jx0, int kx0, int ix1, int jx1, int kx1) {
+    entries.clear();
     int this_id = gid(i, j, k, n, l);
     if (is_source_corner(i, j, k, ix0, jx0, kx0, ix1, jx1, kx1)) {
-        triplets.emplace_back(this_id, this_id, 1.0);
+        entries.emplace_back(this_id, 1.0);
         return;
     }
 
@@ -457,22 +447,20 @@ static void append_godunov_row(
                                                                       : gid(i, j, k + 1, n, l)));
 
     if (U(i, j, k) > uxmin) {
-        triplets.emplace_back(this_id, this_id, 2.0 * (U(i, j, k) - uxmin));
-        triplets.emplace_back(this_id, idx, -2.0 * (U(i, j, k) - uxmin));
+        entries.emplace_back(this_id, 2.0 * (U(i, j, k) - uxmin));
+        entries.emplace_back(idx, -2.0 * (U(i, j, k) - uxmin));
     }
     if (U(i, j, k) > uymin) {
-        triplets.emplace_back(this_id, this_id, 2.0 * (U(i, j, k) - uymin));
-        triplets.emplace_back(this_id, idy, -2.0 * (U(i, j, k) - uymin));
+        entries.emplace_back(this_id, 2.0 * (U(i, j, k) - uymin));
+        entries.emplace_back(idy, -2.0 * (U(i, j, k) - uymin));
     }
     if (U(i, j, k) > uzmin) {
-        triplets.emplace_back(this_id, this_id, 2.0 * (U(i, j, k) - uzmin));
-        triplets.emplace_back(this_id, idz, -2.0 * (U(i, j, k) - uzmin));
+        entries.emplace_back(this_id, 2.0 * (U(i, j, k) - uzmin));
+        entries.emplace_back(idz, -2.0 * (U(i, j, k) - uzmin));
     }
 }
 
-// Local discrete adjoint patch (3D analog of lu_patch_corner.py).
-// Unknowns: the 8 source-box corners (works on domain boundary).
-// Other nodes in the radius-enlarged patch: Dirichlet res = lam_scaled.
+// Source-corner patch: solve a dense local system (≤8 unknowns).
 static void patch_lu_corner_res_3d(
     double *res_out, const double *grad_u, const double *u, const double *lam_scaled,
     int m, int n, int l, double x, double y, double z, int radius = 1) {
@@ -493,14 +481,12 @@ static void patch_lu_corner_res_3d(
 
     std::memcpy(res_out, lam_scaled, sizeof(double) * nn);
 
-    // Unknowns = source corners (may be <8 if source sits on a domain face).
     std::vector<int> unknown;
     unknown.reserve(8);
     for (int i : {ix0, ix1})
         for (int j : {jx0, jx1})
             for (int k : {kx0, kx1})
                 unknown.push_back(gid(i, j, k, n, l));
-    // Unique (in case ix0==ix1 etc.)
     std::sort(unknown.begin(), unknown.end());
     unknown.erase(std::unique(unknown.begin(), unknown.end()), unknown.end());
     if (unknown.empty()) return;
@@ -509,50 +495,41 @@ static void patch_lu_corner_res_3d(
     local_id.reserve(unknown.size() * 2);
     for (int p = 0; p < (int)unknown.size(); ++p) local_id[unknown[p]] = p;
 
-    std::vector<Trip> triplets;
-    triplets.reserve((i_hi - i_lo + 1) * (j_hi - j_lo + 1) * (k_hi - k_lo + 1) * 6);
-    for (int i = i_lo; i <= i_hi; ++i)
-        for (int j = j_lo; j <= j_hi; ++j)
-            for (int k = k_lo; k <= k_hi; ++k)
-                append_godunov_row(triplets, u, m, n, l, i, j, k, ix0, jx0, kx0, ix1, jx1, kx1);
-
-    SpMat G(nn, nn);
-    G.setFromTriplets(triplets.begin(), triplets.end());
-    // Row-major so we can iterate equations (rows of Gᵀ) for each unknown.
-    Eigen::SparseMatrix<double, Eigen::RowMajor> At = G.transpose();
-
     const int nloc = (int)unknown.size();
-    std::vector<Trip> loc_trips;
-    loc_trips.reserve(nloc * 16);
+    Eigen::MatrixXd A = Eigen::MatrixXd::Zero(nloc, nloc);
     Eigen::VectorXd rhs(nloc);
-    rhs.setZero();
+    for (int p = 0; p < nloc; ++p) rhs[p] = grad_u[unknown[p]];
 
-    for (int p = 0; p < nloc; ++p) {
-        const int row_g = unknown[p];
-        rhs[p] = grad_u[row_g];
-        for (Eigen::SparseMatrix<double, Eigen::RowMajor>::InnerIterator it(At, row_g); it; ++it) {
-            const int col = (int)it.col();
-            const double val = it.value();
-            auto found = local_id.find(col);
-            if (found != local_id.end()) {
-                loc_trips.emplace_back(p, found->second, val);
-            } else {
-                rhs[p] -= val * res_out[col];
+    std::vector<std::pair<int, double>> entries;
+    entries.reserve(8);
+    for (int i = i_lo; i <= i_hi; ++i) {
+        for (int j = j_lo; j <= j_hi; ++j) {
+            for (int k = k_lo; k <= k_hi; ++k) {
+                const int row = gid(i, j, k, n, l);
+                collect_godunov_row(entries, u, m, n, l, i, j, k, ix0, jx0, kx0, ix1, jx1, kx1);
+                auto row_it = local_id.find(row);
+                if (row_it != local_id.end()) {
+                    const int q = row_it->second;
+                    for (const auto &e : entries) {
+                        auto col_it = local_id.find(e.first);
+                        if (col_it != local_id.end()) A(col_it->second, q) += e.second;
+                    }
+                } else {
+                    for (const auto &e : entries) {
+                        auto col_it = local_id.find(e.first);
+                        if (col_it != local_id.end()) rhs[col_it->second] -= e.second * lam_scaled[row];
+                    }
+                }
             }
         }
     }
 
-    SpMat A_loc(nloc, nloc);
-    A_loc.setFromTriplets(loc_trips.begin(), loc_trips.end());
-    Eigen::SparseLU<SpMat> solver;
-    solver.analyzePattern(A_loc);
-    solver.factorize(A_loc);
-    if (solver.info() != Eigen::Success) {
-        // Fall back: pinned corners → res = grad_u (identity rows only).
+    Eigen::PartialPivLU<Eigen::MatrixXd> lu(A);
+    Eigen::VectorXd res_loc = lu.solve(rhs);
+    if (!res_loc.allFinite()) {
         for (int id : unknown) res_out[id] = grad_u[id];
         return;
     }
-    Eigen::VectorXd res_loc = solver.solve(rhs);
     for (int p = 0; p < nloc; ++p) res_out[unknown[p]] = res_loc[p];
 }
 
@@ -562,7 +539,6 @@ static void backward(
     int m, int n, int l, double x, double y, double z) {
     const int nn = m * n * l;
     const double vol = h * h * h;
-    const double h2 = h * h;
     const double lam_scale = 0.5 * h;
 
     std::vector<double> delta(nn);
@@ -573,8 +549,7 @@ static void backward(
 
     std::vector<double> lam_scaled(nn);
     for (int i = 0; i < nn; ++i) lam_scaled[i] = lambda[i] * lam_scale;
-
-    for (int i = 0; i < nn; ++i) grad_f[i] = lam_scaled[i] * 2.0 * f[i] * h2;
+    for (int i = 0; i < nn; ++i) grad_f[i] = lambda[i] * f[i] * vol;
 
     // Src correction: only the 8 source-box corners.
     std::vector<double> res(nn);
@@ -583,7 +558,7 @@ static void backward(
 }
 
 // ---------------------------------------------------------------------------
-// PyTorch interface — drop-in replacement for eikonal3d_adj_0f_op
+// PyTorch bindings
 // ---------------------------------------------------------------------------
 
 torch::Tensor eikonal_forward(torch::Tensor f, double h, double x, double y, double z) {

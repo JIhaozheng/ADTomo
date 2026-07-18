@@ -1,10 +1,9 @@
-// 2D continuous zero-flux FSM adjoint + source-corner (src) correction (same as Eikonal2D.cpp).
+// 2D continuous zero-flux FSM adjoint + source-corner (src) correction.
 
 #include <torch/extension.h>
 
 #include <Eigen/Core>
-#include <Eigen/SparseCore>
-#include <Eigen/SparseLU>
+#include <Eigen/Dense>
 
 #include <algorithm>
 #include <cmath>
@@ -13,9 +12,6 @@
 #include <tuple>
 #include <unordered_map>
 #include <vector>
-
-typedef Eigen::SparseMatrix<double> SpMat;
-typedef Eigen::Triplet<double> Trip;
 
 static constexpr double FSM_INF = 1.0e20;
 
@@ -248,56 +244,58 @@ static void apply_source_simpson_grad_from_res(double *grad_f, const double *res
         (r00 * d00 * (w11 + 1) + r10 * d10 * (w11 + 1) + r01 * d01 * (w11 + 1) + r11 * d11 * (w11 + 2)) / 6.0;
 }
 
-// Assemble one Godunov Jacobian row (same stencil as Eikonal2D.cpp).
-static void append_godunov_row(std::vector<Trip> &triplets, const double *u, int m, int n,
-                               int i, int j, int ix0, int jx0, int ix1, int jx1) {
+// Collect one Godunov Jacobian row as (col, val) pairs.
+static void collect_godunov_row(std::vector<std::pair<int, double>> &entries, const double *u,
+                                int m, int n, int i, int j, int ix0, int jx0, int ix1, int jx1) {
+    entries.clear();
     const int ny = n + 1;
     int this_id = gid(i, j, ny);
     if (is_source_corner(i, j, ix0, jx0, ix1, jx1)) {
-        triplets.emplace_back(this_id, this_id, 1.0);
+        entries.emplace_back(this_id, 1.0);
         return;
     }
     auto U = [&](int ii, int jj) { return u[gid(ii, jj, ny)]; };
 
     if (i == 0) {
         if (U(i, j) > U(i + 1, j)) {
-            triplets.emplace_back(this_id, this_id, 2.0 * (U(i, j) - U(i + 1, j)));
-            triplets.emplace_back(this_id, gid(i + 1, j, ny), 2.0 * (U(i + 1, j) - U(i, j)));
+            entries.emplace_back(this_id, 2 * (U(i, j) - U(i + 1, j)));
+            entries.emplace_back(gid(i + 1, j, ny), 2 * (U(i + 1, j) - U(i, j)));
         }
     } else if (i == m) {
         if (U(i, j) > U(i - 1, j)) {
-            triplets.emplace_back(this_id, this_id, 2.0 * (U(i, j) - U(i - 1, j)));
-            triplets.emplace_back(this_id, gid(i - 1, j, ny), 2.0 * (U(i - 1, j) - U(i, j)));
+            entries.emplace_back(this_id, 2 * (U(i, j) - U(i - 1, j)));
+            entries.emplace_back(gid(i - 1, j, ny), 2 * (U(i - 1, j) - U(i, j)));
         }
     } else {
         double a = U(i + 1, j) > U(i - 1, j) ? U(i - 1, j) : U(i + 1, j);
         if (U(i, j) > a) {
-            triplets.emplace_back(this_id, this_id, 2.0 * (U(i, j) - a));
+            entries.emplace_back(this_id, 2 * (U(i, j) - a));
             int nb = U(i + 1, j) > U(i - 1, j) ? gid(i - 1, j, ny) : gid(i + 1, j, ny);
-            triplets.emplace_back(this_id, nb, 2.0 * (a - U(i, j)));
+            entries.emplace_back(nb, 2 * (a - U(i, j)));
         }
     }
 
     if (j == 0) {
         if (U(i, j) > U(i, j + 1)) {
-            triplets.emplace_back(this_id, this_id, 2.0 * (U(i, j) - U(i, j + 1)));
-            triplets.emplace_back(this_id, gid(i, j + 1, ny), 2.0 * (U(i, j + 1) - U(i, j)));
+            entries.emplace_back(this_id, 2 * (U(i, j) - U(i, j + 1)));
+            entries.emplace_back(gid(i, j + 1, ny), 2 * (U(i, j + 1) - U(i, j)));
         }
     } else if (j == n) {
         if (U(i, j) > U(i, j - 1)) {
-            triplets.emplace_back(this_id, this_id, 2.0 * (U(i, j) - U(i, j - 1)));
-            triplets.emplace_back(this_id, gid(i, j - 1, ny), 2.0 * (U(i, j - 1) - U(i, j)));
+            entries.emplace_back(this_id, 2 * (U(i, j) - U(i, j - 1)));
+            entries.emplace_back(gid(i, j - 1, ny), 2 * (U(i, j - 1) - U(i, j)));
         }
     } else {
         double b = U(i, j + 1) > U(i, j - 1) ? U(i, j - 1) : U(i, j + 1);
         if (U(i, j) > b) {
-            triplets.emplace_back(this_id, this_id, 2.0 * (U(i, j) - b));
+            entries.emplace_back(this_id, 2 * (U(i, j) - b));
             int nb = U(i, j + 1) > U(i, j - 1) ? gid(i, j - 1, ny) : gid(i, j + 1, ny);
-            triplets.emplace_back(this_id, nb, 2.0 * (b - U(i, j)));
+            entries.emplace_back(nb, 2 * (b - U(i, j)));
         }
     }
 }
 
+// Source-corner patch: solve a dense local system (≤4 unknowns).
 static void patch_lu_corner_res_2d(double *res_out, const double *grad_u, const double *u,
                                    const double *lam_scaled, int m, int n, double x, double y,
                                    int radius = 1) {
@@ -323,46 +321,42 @@ static void patch_lu_corner_res_2d(double *res_out, const double *grad_u, const 
     if (unknown.empty()) return;
 
     std::unordered_map<int, int> local_id;
+    local_id.reserve(unknown.size() * 2);
     for (int p = 0; p < (int)unknown.size(); ++p) local_id[unknown[p]] = p;
 
-    std::vector<Trip> triplets;
-    for (int i = i_lo; i <= i_hi; ++i)
-        for (int j = j_lo; j <= j_hi; ++j)
-            append_godunov_row(triplets, u, m, n, i, j, ix0, jx0, ix1, jx1);
-
-    SpMat G(nn, nn);
-    G.setFromTriplets(triplets.begin(), triplets.end());
-    Eigen::SparseMatrix<double, Eigen::RowMajor> At = G.transpose();
-
     const int nloc = (int)unknown.size();
-    std::vector<Trip> loc_trips;
+    Eigen::MatrixXd A = Eigen::MatrixXd::Zero(nloc, nloc);
     Eigen::VectorXd rhs(nloc);
-    rhs.setZero();
+    for (int p = 0; p < nloc; ++p) rhs[p] = grad_u[unknown[p]];
 
-    for (int p = 0; p < nloc; ++p) {
-        const int row_g = unknown[p];
-        rhs[p] = grad_u[row_g];
-        for (Eigen::SparseMatrix<double, Eigen::RowMajor>::InnerIterator it(At, row_g); it; ++it) {
-            const int col = (int)it.col();
-            const double val = it.value();
-            auto found = local_id.find(col);
-            if (found != local_id.end())
-                loc_trips.emplace_back(p, found->second, val);
-            else
-                rhs[p] -= val * res_out[col];
+    std::vector<std::pair<int, double>> entries;
+    entries.reserve(8);
+    for (int i = i_lo; i <= i_hi; ++i) {
+        for (int j = j_lo; j <= j_hi; ++j) {
+            const int row = gid(i, j, ny);
+            collect_godunov_row(entries, u, m, n, i, j, ix0, jx0, ix1, jx1);
+            auto row_it = local_id.find(row);
+            if (row_it != local_id.end()) {
+                const int q = row_it->second;
+                for (const auto &e : entries) {
+                    auto col_it = local_id.find(e.first);
+                    if (col_it != local_id.end()) A(col_it->second, q) += e.second;
+                }
+            } else {
+                for (const auto &e : entries) {
+                    auto col_it = local_id.find(e.first);
+                    if (col_it != local_id.end()) rhs[col_it->second] -= e.second * lam_scaled[row];
+                }
+            }
         }
     }
 
-    SpMat A_loc(nloc, nloc);
-    A_loc.setFromTriplets(loc_trips.begin(), loc_trips.end());
-    Eigen::SparseLU<SpMat> solver;
-    solver.analyzePattern(A_loc);
-    solver.factorize(A_loc);
-    if (solver.info() != Eigen::Success) {
+    Eigen::PartialPivLU<Eigen::MatrixXd> lu(A);
+    Eigen::VectorXd res_loc = lu.solve(rhs);
+    if (!res_loc.allFinite()) {
         for (int id : unknown) res_out[id] = grad_u[id];
         return;
     }
-    Eigen::VectorXd res_loc = solver.solve(rhs);
     for (int p = 0; p < nloc; ++p) res_out[unknown[p]] = res_loc[p];
 }
 
@@ -370,15 +364,13 @@ static void backward(double *grad_f, const double *grad_u, const double *u, cons
                      int m, int n, double h, double x, double y) {
     const int nx = m + 1, ny = n + 1, nn = nx * ny;
     const double area = h * h;
-    const double lam_scale = 0.5;
 
     std::vector<double> delta(nn), lambda(nn), lam_scaled(nn), res(nn);
     for (int i = 0; i < nn; ++i) delta[i] = grad_u[i] / area;
     solve_adjoint_fsm_0f_src(lambda.data(), u, delta.data(), nx, ny, h, x, y, true);
-    for (int i = 0; i < nn; ++i) lam_scaled[i] = lambda[i] * lam_scale;
-    for (int i = 0; i < nn; ++i) grad_f[i] = lam_scaled[i] * 2.0 * f[i] * area;
+    for (int i = 0; i < nn; ++i) lam_scaled[i] = 0.5 * lambda[i];
+    for (int i = 0; i < nn; ++i) grad_f[i] = lambda[i] * f[i] * area;
 
-    // Src correction: only the 4 source-box corners.
     patch_lu_corner_res_2d(res.data(), grad_u, u, lam_scaled.data(), m, n, x, y, 1);
     apply_source_simpson_grad_from_res(grad_f, res.data(), m, n, h, x, y);
 }
@@ -418,9 +410,9 @@ torch::Tensor eikonal_solve_adjoint(torch::Tensor T, torch::Tensor delta, double
 }
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
-    m.def("forward", &eikonal_forward, "2D forward");
-    m.def("backward", &eikonal_backward, "2D zero-flux FSM adjoint + src correction");
-    m.def("solve_adjoint", &eikonal_solve_adjoint, "2D zero-flux FSM adjoint + src correction",
+    m.def("forward", &eikonal_forward, "Eikonal2D forward");
+    m.def("backward", &eikonal_backward, "Eikonal2D backward");
+    m.def("solve_adjoint", &eikonal_solve_adjoint, "Eikonal2D solve_adjoint",
           pybind11::arg("T"), pybind11::arg("delta"), pybind11::arg("h"),
           pybind11::arg("x") = std::numeric_limits<double>::quiet_NaN(),
           pybind11::arg("y") = std::numeric_limits<double>::quiet_NaN());
