@@ -379,9 +379,7 @@ torch::Tensor eikonal_solve_adjoint(torch::Tensor T, torch::Tensor delta, double
 }
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
-    m.def("forward", &eikonal_forward, "Eikonal3D forward (FSM sweep)");
-    m.def("backward", &eikonal_backward,
-          "Eikonal3D backward (zero-flux FSM, nabla T, no src corner overwrite)");
-    m.def("solve_adjoint", &eikonal_solve_adjoint,
-          "Eikonal3D adjoint solve: nabla·(lambda nabla T)=delta, zero-flux + source nabla T");
+    m.def("forward", &eikonal_forward, "3D forward");
+    m.def("backward", &eikonal_backward, "3D zero-flux FSM adjoint");
+    m.def("solve_adjoint", &eikonal_solve_adjoint, "3D zero-flux FSM adjoint");
 }

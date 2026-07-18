@@ -199,7 +199,6 @@ torch::Tensor eikonal_backward(torch::Tensor grad_u, torch::Tensor u, torch::Ten
 }
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
-    m.def("forward", &eikonal_forward, "Eikonal2D forward (same as LU)");
-    m.def("backward", &eikonal_backward,
-          "Eikonal2D discrete SparseLU: corners in matrix, no Simpson overwrite");
+    m.def("forward", &eikonal_forward, "2D forward");
+    m.def("backward", &eikonal_backward, "2D global adjoint");
 }

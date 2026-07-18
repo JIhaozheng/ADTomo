@@ -251,7 +251,6 @@ torch::Tensor eikonal_backward(torch::Tensor grad_u, torch::Tensor u, torch::Ten
 }
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
-    m.def("forward", &eikonal_forward, "Eikonal2D forward (FSM sweep)");
-    m.def("backward", &eikonal_backward,
-          "Eikonal2D backward (Dirichlet FSM, nabla T, no src corner overwrite)");
+    m.def("forward", &eikonal_forward, "2D forward");
+    m.def("backward", &eikonal_backward, "2D Dirichlet FSM adjoint");
 }

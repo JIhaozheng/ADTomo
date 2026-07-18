@@ -394,9 +394,8 @@ torch::Tensor eikonal_backward_ordered(torch::Tensor grad_u, torch::Tensor u, to
 }
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
-    m.def("forward", &eikonal_forward, "Eikonal3D forward (FSM)");
-    m.def("backward", &eikonal_backward_lu, "Eikonal3D backward (SparseLU, baseline)");
-    m.def("backward_lu", &eikonal_backward_lu, "Eikonal3D backward (SparseLU, baseline)");
-    m.def("backward_ordered", &eikonal_backward_ordered,
-          "Eikonal3D backward (causal back-substitution)");
+    m.def("forward", &eikonal_forward, "3D forward");
+    m.def("backward", &eikonal_backward_lu, "3D SparseLU adjoint");
+    m.def("backward_lu", &eikonal_backward_lu, "3D SparseLU adjoint");
+    m.def("backward_ordered", &eikonal_backward_ordered, "3D ordered adjoint");
 }

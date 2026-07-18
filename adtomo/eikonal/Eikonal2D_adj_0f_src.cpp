@@ -418,11 +418,9 @@ torch::Tensor eikonal_solve_adjoint(torch::Tensor T, torch::Tensor delta, double
 }
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
-    m.def("forward", &eikonal_forward, "Eikonal2D forward (FSM sweep)");
-    m.def("backward", &eikonal_backward,
-          "Eikonal2D backward (FSM + src corner LU/Simpson overwrite)");
-    m.def("solve_adjoint", &eikonal_solve_adjoint,
-          "Eikonal2D adjoint solve with optional source coords (NaN => no source-box fix)",
+    m.def("forward", &eikonal_forward, "2D forward");
+    m.def("backward", &eikonal_backward, "2D zero-flux FSM adjoint + src correction");
+    m.def("solve_adjoint", &eikonal_solve_adjoint, "2D zero-flux FSM adjoint + src correction",
           pybind11::arg("T"), pybind11::arg("delta"), pybind11::arg("h"),
           pybind11::arg("x") = std::numeric_limits<double>::quiet_NaN(),
           pybind11::arg("y") = std::numeric_limits<double>::quiet_NaN());
