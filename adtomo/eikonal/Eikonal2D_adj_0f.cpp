@@ -1,5 +1,4 @@
-// 2D continuous adjoint: zero-flux FSM + source-box ∇T (adjderivonsource).
-// No source-corner (src) grad_f overwrite.
+// 2D continuous zero-flux FSM adjoint no source-corner (src) correction
 
 #include <torch/extension.h>
 

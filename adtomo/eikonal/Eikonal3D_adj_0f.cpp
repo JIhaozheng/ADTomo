@@ -1,6 +1,4 @@
-// 3D continuous adjoint: zero-flux FSM + source-box ∇T (adjderivonsource).
-// No source-corner (src) grad_f overwrite.
-// Layout: f,u,grad_u shape (m,n,l); x,y,z in grid-index coordinates; h = spacing.
+// 3D continuous zero-flux FSM adjoint no source-corner (src) correction
 
 #include <torch/extension.h>
 
