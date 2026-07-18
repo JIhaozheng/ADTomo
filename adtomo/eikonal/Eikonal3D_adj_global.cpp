@@ -1,9 +1,6 @@
-// 3D discrete adjoint SparseLU — same structure as Eikonal3D.cpp.
-//
-// Differences vs LU baseline (Eikonal3D.cpp):
-//   1) Matrix: source-box corners are assembled with the upwind stencil
-//      (LU pins them with A_ii = 1 and skips the stencil).
-//   2) No Simpson source-corner overwrite of grad_f after the solve.
+// 3D discrete adjoint SparseLU — same structure as Eikonal2D.cpp.
+// no source-corner (src) correction
+
 
 #include <torch/extension.h>
 
