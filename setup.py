@@ -38,37 +38,49 @@ download_eigen()
 # download_libtorch()
 torch_lib_dir = f"{os.path.dirname(torch.__file__)}/lib"
 
+# Absolute include dirs: torch/ninja compiles in a temporary build dir, so relative paths like
+# "./adtomo/eigen" do not resolve. Use absolute paths so every extension finds Eigen headers.
+INCLUDE_DIRS = [
+    os.path.abspath("./adtomo/eigen"),
+    os.path.abspath("./adtomo/libtorch"),
+]
+
+
+def cpp_ext(name, sources):
+    return CppExtension(
+        name=name,
+        sources=sources,
+        include_dirs=INCLUDE_DIRS,
+        extra_link_args=[f"-Wl,-rpath,{torch_lib_dir}"],
+        language="c++",
+    )
+
+
 setup(
     name="adtomo",
     version="0.1.0",
     packages=["adtomo"],
     ext_modules=[
-        CppExtension(
-            name="eikonal2d_op",
-            sources=["adtomo/eikonal/Eikonal2D.cpp"],
-            include_dirs=[
-                "./adtomo/eigen",
-                "./adtomo/libtorch",
-            ],
-            # library_dirs=[torch_lib_dir],
-            extra_compile_args=[],
-            extra_link_args=[f"-Wl,-rpath,{torch_lib_dir}"],
-            language="c++",
-        ),
-        CppExtension(
-            name="eikonal3d_op",
-            sources=["adtomo/eikonal/Eikonal3D.cpp"],
-            include_dirs=[
-                "./adtomo/eigen",
-                "./adtomo/libtorch",
-            ],
-            # library_dirs=[torch_lib_dir],
-            extra_link_args=[f"-Wl,-rpath,{torch_lib_dir}"],
-            extra_compile_args=[],
-            language="c++",
-        ),
+        # Discrete adjoint (forked from https://github.com/AI4EPS/ADTomo.git)
+        cpp_ext("eikonal2d_op", ["adtomo/eikonal/Eikonal2D.cpp"]),
+        cpp_ext("eikonal3d_op", ["adtomo/eikonal/Eikonal3D.cpp"]),
+        # Continuous FSM adjoint, zero-flux (Neumann B.C.); no source-corner overwrite
+        cpp_ext("eikonal2d_adj_0f_op", ["adtomo/eikonal/Eikonal2D_adj_0f.cpp"]),
+        cpp_ext("eikonal3d_adj_0f_op", ["adtomo/eikonal/Eikonal3D_adj_0f.cpp"]),
+        # Continuous FSM adjoint, zero-flux (Neumann B.C.) + source gradient correction
+        cpp_ext("eikonal2d_adj_0f_src_op", ["adtomo/eikonal/Eikonal2D_adj_0f_src.cpp"]),
+        cpp_ext("eikonal3d_adj_0f_src_op", ["adtomo/eikonal/Eikonal3D_adj_0f_src.cpp"]),
+        # Continuous FSM adjoint, Dirichlet B.C.
+        cpp_ext("eikonal2d_adj_dir_op", ["adtomo/eikonal/Eikonal2D_adj_dir.cpp"]),
+        cpp_ext("eikonal3d_adj_dir_op", ["adtomo/eikonal/Eikonal3D_adj_dir.cpp"]),
+        # Discrete SparseLU, deleted source gradient correction
+        cpp_ext("eikonal2d_adj_global_op", ["adtomo/eikonal/Eikonal2D_adj_global.cpp"]),
+        cpp_ext("eikonal3d_adj_global_op", ["adtomo/eikonal/Eikonal3D_adj_global.cpp"]),
+        # Discrete adjoint (Li et al., 2013)
+        cpp_ext("eikonal2d_adj_ordered_op", ["adtomo/eikonal/Eikonal2D_adj_ordered.cpp"]),
+        cpp_ext("eikonal3d_adj_ordered_op", ["adtomo/eikonal/Eikonal3D_adj_ordered.cpp"]),
     ],
-    cmdclass={"build_ext": BuildExtension.with_options(no_cuda=True)},  # Disables CUDA, compile only for CPU
+    cmdclass={"build_ext": BuildExtension.with_options(no_cuda=True)},
     install_requires=[
         "torch",
     ],
