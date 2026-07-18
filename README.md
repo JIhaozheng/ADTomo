@@ -50,6 +50,11 @@ Figures: `tests/gradtest_figs/`.
 
 `LU`, `ordered`, and `0f_src` pass the gradient test; vs LU, they also have the smallest gradient errors. Neumann B.C. (`0f`) and Dirichlet B.C. (`dir`) can reach ~1e-1 error at a few points; `dir` can reach 
 ~1e-8 near the boundary.
+
+<img height="400" alt="gradient_field" src="https://github.com/user-attachments/assets/339e5086-72f7-440b-bd92-2651a18feaa0" /><img height="400" alt="gradient_test" src="https://github.com/user-attachments/assets/27a77131-b444-49ff-b126-09f4f951de8c" />
+
+
+
 ## 5. Checkerboard example
 
 ```bash
@@ -64,3 +69,4 @@ python 05.readnpz.py
 ```
 
 Output: `examples/checkerboard/inversion/`.
+<img width="600" alt="loss_curve" src="https://github.com/user-attachments/assets/d04139e1-de8b-41f9-bb12-171bcd1d9dab" />
