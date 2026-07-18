@@ -1,15 +1,4 @@
-// using the discrete adjont
-// but using the ordered solver
-// based on Li et al. 2013
-// Doc Reference: ADTOMO/ORDERED_ADJOINT.md
-
-// Self-contained 3D Eikonal: baseline FSM forward + two discrete adjoint solvers.
-//   backward_lu      : assemble B, solve B^T lambda = g via Eigen::SparseLU (= Eikonal3D.cpp).
-//   backward_ordered : assemble identical B, solve B^T lambda = g by causal back-substitution
-//                      in descending traveltime order (upwind => triangular, no factorization).
-// Both share the same assembly and Simpson source-gradient term, producing gradients identical to
-// the SparseLU baseline (~4e-16) while the ordered solver is 5-22x faster in 3D. Built as the
-// eikonal3d_adj_ordered_op extension (see setup.py); frontend is adtomo/eikonal_ordered.py.
+// 3D discrete adjoint with ordered (causal) solver
 
 #include <torch/extension.h>
 

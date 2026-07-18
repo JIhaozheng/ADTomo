@@ -1,9 +1,4 @@
-// 2D discrete adjoint with ordered (causal) solver, parallel to Eikonal3D_adj_ordered.cpp.
-//
-//   backward / backward_lu : assemble B, solve B^T λ = g via Eigen::SparseLU (= Eikonal2D.cpp)
-//   backward_ordered       : same assembly, solve by descending-traveltime back-substitution
-//
-// Both share Simpson source-corner grad_f. Built as eikonal2d_adj_ordered_op.
+// 2D discrete adjoint with ordered (causal) solver
 
 #include <torch/extension.h>
 
