@@ -99,14 +99,14 @@ static void forward(double *u, const double *f, int m, int n, double h, double x
     sweep_fsm_inf(u, f, nx, ny, h, ix0, iy0, ix1, iy1);
 }
 
-// Assemble B (triplets) identical to Eikonal2D.cpp backward().
+// Assemble B (triplets).
 static void assemble_adjoint(std::vector<T> &triplets, Eigen::VectorXd &dFdf, const double *u,
                              const double *f, int m, int n, double h, int ix0, int jx0, int ix1,
                              int jx1) {
     const int ny = n + 1;
     const int N = (m + 1) * ny;
     dFdf.resize(N);
-    for (int i = 0; i < N; ++i) dFdf[i] = -2.0 * f[i] * h * h;
+    for (int i = 0; i < N; ++i) dFdf[i] = -2 * f[i] * h * h;
 
     for (int i = 0; i < m + 1; ++i) {
         for (int j = 0; j < n + 1; ++j) {
@@ -119,43 +119,43 @@ static void assemble_adjoint(std::vector<T> &triplets, Eigen::VectorXd &dFdf, co
 
             if (i == 0) {
                 if (u[idx] > u[gid(i + 1, j, ny)]) {
-                    triplets.push_back(T(idx, idx, 2.0 * (u[idx] - u[gid(i + 1, j, ny)])));
-                    triplets.push_back(T(idx, gid(i + 1, j, ny), 2.0 * (u[gid(i + 1, j, ny)] - u[idx])));
+                    triplets.push_back(T(idx, idx, 2 * (u[idx] - u[gid(i + 1, j, ny)])));
+                    triplets.push_back(T(idx, gid(i + 1, j, ny), 2 * (u[gid(i + 1, j, ny)] - u[idx])));
                 }
             } else if (i == m) {
                 if (u[idx] > u[gid(i - 1, j, ny)]) {
-                    triplets.push_back(T(idx, idx, 2.0 * (u[idx] - u[gid(i - 1, j, ny)])));
-                    triplets.push_back(T(idx, gid(i - 1, j, ny), 2.0 * (u[gid(i - 1, j, ny)] - u[idx])));
+                    triplets.push_back(T(idx, idx, 2 * (u[idx] - u[gid(i - 1, j, ny)])));
+                    triplets.push_back(T(idx, gid(i - 1, j, ny), 2 * (u[gid(i - 1, j, ny)] - u[idx])));
                 }
             } else {
                 double a = std::min(u[gid(i + 1, j, ny)], u[gid(i - 1, j, ny)]);
                 if (u[idx] > a) {
-                    triplets.push_back(T(idx, idx, 2.0 * (u[idx] - a)));
+                    triplets.push_back(T(idx, idx, 2 * (u[idx] - a)));
                     if (u[gid(i + 1, j, ny)] > u[gid(i - 1, j, ny)])
-                        triplets.push_back(T(idx, gid(i - 1, j, ny), 2.0 * (a - u[idx])));
+                        triplets.push_back(T(idx, gid(i - 1, j, ny), 2 * (a - u[idx])));
                     else
-                        triplets.push_back(T(idx, gid(i + 1, j, ny), 2.0 * (a - u[idx])));
+                        triplets.push_back(T(idx, gid(i + 1, j, ny), 2 * (a - u[idx])));
                 }
             }
 
             if (j == 0) {
                 if (u[idx] > u[gid(i, 1, ny)]) {
-                    triplets.push_back(T(idx, idx, 2.0 * (u[idx] - u[gid(i, 1, ny)])));
-                    triplets.push_back(T(idx, gid(i, 1, ny), 2.0 * (u[gid(i, 1, ny)] - u[idx])));
+                    triplets.push_back(T(idx, idx, 2 * (u[idx] - u[gid(i, 1, ny)])));
+                    triplets.push_back(T(idx, gid(i, 1, ny), 2 * (u[gid(i, 1, ny)] - u[idx])));
                 }
             } else if (j == n) {
                 if (u[idx] > u[gid(i, n - 1, ny)]) {
-                    triplets.push_back(T(idx, idx, 2.0 * (u[idx] - u[gid(i, n - 1, ny)])));
-                    triplets.push_back(T(idx, gid(i, n - 1, ny), 2.0 * (u[gid(i, n - 1, ny)] - u[idx])));
+                    triplets.push_back(T(idx, idx, 2 * (u[idx] - u[gid(i, n - 1, ny)])));
+                    triplets.push_back(T(idx, gid(i, n - 1, ny), 2 * (u[gid(i, n - 1, ny)] - u[idx])));
                 }
             } else {
                 double b = std::min(u[gid(i, j + 1, ny)], u[gid(i, j - 1, ny)]);
                 if (u[idx] > b) {
-                    triplets.push_back(T(idx, idx, 2.0 * (u[idx] - b)));
+                    triplets.push_back(T(idx, idx, 2 * (u[idx] - b)));
                     if (u[gid(i, j + 1, ny)] > u[gid(i, j - 1, ny)])
-                        triplets.push_back(T(idx, gid(i, j - 1, ny), 2.0 * (b - u[idx])));
+                        triplets.push_back(T(idx, gid(i, j - 1, ny), 2 * (b - u[idx])));
                     else
-                        triplets.push_back(T(idx, gid(i, j + 1, ny), 2.0 * (b - u[idx])));
+                        triplets.push_back(T(idx, gid(i, j + 1, ny), 2 * (b - u[idx])));
                 }
             }
         }
@@ -176,20 +176,20 @@ static void apply_simpson_source_grad(double *grad_f, const Eigen::VectorXd &res
     double d11 = std::hypot(x - ix1, y - jx1) * h;
 
     grad_f[gid(ix0, jx0, ny)] =
-        (res00 * d00 * (w00 + 1 + 1) + res10 * d10 * (w00 + 1) + res01 * d01 * (w00 + 1) +
+        (res00 * d00 * (w00 + 2) + res10 * d10 * (w00 + 1) + res01 * d01 * (w00 + 1) +
          res11 * d11 * (w00 + 1)) /
         6.0;
     grad_f[gid(ix1, jx0, ny)] =
-        (res00 * d00 * (w10 + 1) + res10 * d10 * (w10 + 1 + 1) + res01 * d01 * (w10 + 1) +
+        (res00 * d00 * (w10 + 1) + res10 * d10 * (w10 + 2) + res01 * d01 * (w10 + 1) +
          res11 * d11 * (w10 + 1)) /
         6.0;
     grad_f[gid(ix0, jx1, ny)] =
-        (res00 * d00 * (w01 + 1) + res10 * d10 * (w01 + 1) + res01 * d01 * (w01 + 1 + 1) +
+        (res00 * d00 * (w01 + 1) + res10 * d10 * (w01 + 1) + res01 * d01 * (w01 + 2) +
          res11 * d11 * (w01 + 1)) /
         6.0;
     grad_f[gid(ix1, jx1, ny)] =
         (res00 * d00 * (w11 + 1) + res10 * d10 * (w11 + 1) + res01 * d01 * (w11 + 1) +
-         res11 * d11 * (w11 + 1 + 1)) /
+         res11 * d11 * (w11 + 2)) /
         6.0;
 }
 
@@ -216,7 +216,7 @@ static void backward_lu_impl(double *grad_f, const double *grad_u, const double 
     apply_simpson_source_grad(grad_f, res, h, m, n, x, y, ix0, jx0, ix1, jx1);
 }
 
-// Causal back-substitution in descending traveltime order (same idea as 3D ordered).
+// Causal back-substitution in descending traveltime order.
 static void backward_ordered_impl(double *grad_f, const double *grad_u, const double *u,
                                   const double *f, int m, int n, double h, double x, double y) {
     int ix0 = std::max(0, std::min((int)std::floor(x), m));
@@ -290,8 +290,8 @@ torch::Tensor eikonal_backward_ordered(torch::Tensor grad_u, torch::Tensor u, to
 }
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
-    m.def("forward", &eikonal_forward, "2D forward");
-    m.def("backward", &eikonal_backward_ordered, "2D ordered adjoint");
-    m.def("backward_lu", &eikonal_backward_lu, "2D SparseLU adjoint");
-    m.def("backward_ordered", &eikonal_backward_ordered, "2D ordered adjoint");
+    m.def("forward", &eikonal_forward, "Eikonal2D forward");
+    m.def("backward", &eikonal_backward_ordered, "Eikonal2D backward");
+    m.def("backward_lu", &eikonal_backward_lu, "Eikonal2D backward_lu");
+    m.def("backward_ordered", &eikonal_backward_ordered, "Eikonal2D backward_ordered");
 }

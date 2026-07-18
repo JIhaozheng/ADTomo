@@ -1,5 +1,4 @@
-// 2D discrete adjoint SparseLU — same structure as Eikonal2D.cpp.
-// no source-corner (src) correction
+// 2D discrete adjoint SparseLU — no source-corner correction
 
 #include <torch/extension.h>
 
@@ -99,7 +98,7 @@ static void forward(double *u, const double *f, int m, int n, double h, double x
     sweep_fsm_inf(u, f, nx, ny, h, ix0, iy0, ix1, iy1);
 }
 
-// Same upwind assembly as Eikonal2D.cpp, but source corners are NOT pinned (A_ii=1).
+// Assemble upwind Jacobian; source corners are not pinned.
 static void backward(double *grad_f, const double *grad_u, const double *u, const double *f, int m,
                      int n, double h, double x, double y) {
     (void)x;
@@ -108,7 +107,7 @@ static void backward(double *grad_f, const double *grad_u, const double *u, cons
     const int N = (m + 1) * ny;
 
     Eigen::VectorXd dFdf(N);
-    for (int i = 0; i < N; i++) dFdf[i] = -2.0 * f[i] * h * h;
+    for (int i = 0; i < N; i++) dFdf[i] = -2 * f[i] * h * h;
 
     std::vector<T> triplets;
     std::vector<int> empty_rows;
@@ -116,47 +115,46 @@ static void backward(double *grad_f, const double *grad_u, const double *u, cons
         for (int j = 0; j < n + 1; j++) {
             int idx = gid(i, j, ny);
             const size_t n0 = triplets.size();
-            // Diff vs LU: no early continue with A_ii=1 at source corners.
 
             if (i == 0) {
                 if (u[idx] > u[gid(i + 1, j, ny)]) {
-                    triplets.push_back(T(idx, idx, 2.0 * (u[idx] - u[gid(i + 1, j, ny)])));
-                    triplets.push_back(T(idx, gid(i + 1, j, ny), 2.0 * (u[gid(i + 1, j, ny)] - u[idx])));
+                    triplets.push_back(T(idx, idx, 2 * (u[idx] - u[gid(i + 1, j, ny)])));
+                    triplets.push_back(T(idx, gid(i + 1, j, ny), 2 * (u[gid(i + 1, j, ny)] - u[idx])));
                 }
             } else if (i == m) {
                 if (u[idx] > u[gid(i - 1, j, ny)]) {
-                    triplets.push_back(T(idx, idx, 2.0 * (u[idx] - u[gid(i - 1, j, ny)])));
-                    triplets.push_back(T(idx, gid(i - 1, j, ny), 2.0 * (u[gid(i - 1, j, ny)] - u[idx])));
+                    triplets.push_back(T(idx, idx, 2 * (u[idx] - u[gid(i - 1, j, ny)])));
+                    triplets.push_back(T(idx, gid(i - 1, j, ny), 2 * (u[gid(i - 1, j, ny)] - u[idx])));
                 }
             } else {
                 double a = std::min(u[gid(i + 1, j, ny)], u[gid(i - 1, j, ny)]);
                 if (u[idx] > a) {
-                    triplets.push_back(T(idx, idx, 2.0 * (u[idx] - a)));
+                    triplets.push_back(T(idx, idx, 2 * (u[idx] - a)));
                     if (u[gid(i + 1, j, ny)] > u[gid(i - 1, j, ny)])
-                        triplets.push_back(T(idx, gid(i - 1, j, ny), 2.0 * (a - u[idx])));
+                        triplets.push_back(T(idx, gid(i - 1, j, ny), 2 * (a - u[idx])));
                     else
-                        triplets.push_back(T(idx, gid(i + 1, j, ny), 2.0 * (a - u[idx])));
+                        triplets.push_back(T(idx, gid(i + 1, j, ny), 2 * (a - u[idx])));
                 }
             }
 
             if (j == 0) {
                 if (u[idx] > u[gid(i, 1, ny)]) {
-                    triplets.push_back(T(idx, idx, 2.0 * (u[idx] - u[gid(i, 1, ny)])));
-                    triplets.push_back(T(idx, gid(i, 1, ny), 2.0 * (u[gid(i, 1, ny)] - u[idx])));
+                    triplets.push_back(T(idx, idx, 2 * (u[idx] - u[gid(i, 1, ny)])));
+                    triplets.push_back(T(idx, gid(i, 1, ny), 2 * (u[gid(i, 1, ny)] - u[idx])));
                 }
             } else if (j == n) {
                 if (u[idx] > u[gid(i, n - 1, ny)]) {
-                    triplets.push_back(T(idx, idx, 2.0 * (u[idx] - u[gid(i, n - 1, ny)])));
-                    triplets.push_back(T(idx, gid(i, n - 1, ny), 2.0 * (u[gid(i, n - 1, ny)] - u[idx])));
+                    triplets.push_back(T(idx, idx, 2 * (u[idx] - u[gid(i, n - 1, ny)])));
+                    triplets.push_back(T(idx, gid(i, n - 1, ny), 2 * (u[gid(i, n - 1, ny)] - u[idx])));
                 }
             } else {
                 double b = std::min(u[gid(i, j + 1, ny)], u[gid(i, j - 1, ny)]);
                 if (u[idx] > b) {
-                    triplets.push_back(T(idx, idx, 2.0 * (u[idx] - b)));
+                    triplets.push_back(T(idx, idx, 2 * (u[idx] - b)));
                     if (u[gid(i, j + 1, ny)] > u[gid(i, j - 1, ny)])
-                        triplets.push_back(T(idx, gid(i, j - 1, ny), 2.0 * (b - u[idx])));
+                        triplets.push_back(T(idx, gid(i, j - 1, ny), 2 * (b - u[idx])));
                     else
-                        triplets.push_back(T(idx, gid(i, j + 1, ny), 2.0 * (b - u[idx])));
+                        triplets.push_back(T(idx, gid(i, j + 1, ny), 2 * (b - u[idx])));
                 }
             }
             if (triplets.size() == n0) empty_rows.push_back(idx);
@@ -173,7 +171,6 @@ static void backward(double *grad_f, const double *grad_u, const double *u, cons
     solver.factorize(A);
     Eigen::VectorXd res = solver.solve(g);
     for (int i = 0; i < N; i++) grad_f[i] = -res[i] * dFdf[i];
-    // Diff vs LU: no Simpson source-corner overwrite.
 }
 
 torch::Tensor eikonal_forward(torch::Tensor f, double h, double x, double y) {
@@ -199,6 +196,6 @@ torch::Tensor eikonal_backward(torch::Tensor grad_u, torch::Tensor u, torch::Ten
 }
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
-    m.def("forward", &eikonal_forward, "2D forward");
-    m.def("backward", &eikonal_backward, "2D global adjoint");
+    m.def("forward", &eikonal_forward, "Eikonal2D forward");
+    m.def("backward", &eikonal_backward, "Eikonal2D backward");
 }

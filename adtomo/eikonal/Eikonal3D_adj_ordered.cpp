@@ -22,7 +22,7 @@ typedef Eigen::Triplet<double> T;
 #define GID(i, j, k) ((i) * n * l + (j) * l + (k))
 
 // ---------------------------------------------------------------------------
-// Forward (identical to adtomo/eikonal/Eikonal3D.cpp)
+// Forward FSM
 // ---------------------------------------------------------------------------
 static double calculate_unique_solution(double a1_, double a2_, double a3_, double fval, double h) {
     double a1 = a1_, a2 = a2_, a3 = a3_;
@@ -131,7 +131,6 @@ static void forward(double *u, const double *f, double h, int m, int n, int l, d
 
 // ---------------------------------------------------------------------------
 // Shared adjoint assembly: build B (triplets), g (adjoint source), rhs (-2 f h^2).
-// Mirrors Eikonal3D.cpp backward() exactly, including source identity rows and zero_id handling.
 // ---------------------------------------------------------------------------
 static void assemble_adjoint(std::vector<T> &triplets, Eigen::VectorXd &g, Eigen::VectorXd &rhs,
                              const double *grad_u, const double *u, const double *f, double h,
@@ -212,7 +211,7 @@ static void assemble_adjoint(std::vector<T> &triplets, Eigen::VectorXd &g, Eigen
     }
 }
 
-// Simpson source-gradient term, identical to Eikonal3D.cpp lines 300-405.
+// Simpson source-gradient term at the source box.
 static void apply_simpson_source_grad(double *grad_f, const Eigen::VectorXd &res, double h, int m,
                                       int n, int l, double x, double y, double z, int ix0, int jx0,
                                       int kx0, int ix1, int jx1, int kx1) {
@@ -239,51 +238,51 @@ static void apply_simpson_source_grad(double *grad_f, const Eigen::VectorXd &res
            d110 = dd(ix1, jx1, kx0), d111 = dd(ix1, jx1, kx1);
 
     grad_f[GID(ix0, jx0, kx0)] =
-        (res000 * d000 * (w000 + 0.5 + 1) + res001 * d001 * (w000 + 0.5) +
+        (res000 * d000 * (w000 + 1.5) + res001 * d001 * (w000 + 0.5) +
          res010 * d010 * (w000 + 0.5) + res011 * d011 * (w000 + 0.5) + res100 * d100 * (w000 + 0.5) +
          res101 * d101 * (w000 + 0.5) + res110 * d110 * (w000 + 0.5) + res111 * d111 * (w000 + 0.5)) /
         6.0;
     grad_f[GID(ix0, jx0, kx1)] =
-        (res000 * d000 * (w001 + 0.5) + res001 * d001 * (w001 + 0.5 + 1) +
+        (res000 * d000 * (w001 + 0.5) + res001 * d001 * (w001 + 1.5) +
          res010 * d010 * (w001 + 0.5) + res011 * d011 * (w001 + 0.5) + res100 * d100 * (w001 + 0.5) +
          res101 * d101 * (w001 + 0.5) + res110 * d110 * (w001 + 0.5) + res111 * d111 * (w001 + 0.5)) /
         6.0;
     grad_f[GID(ix0, jx1, kx0)] =
         (res000 * d000 * (w010 + 0.5) + res001 * d001 * (w010 + 0.5) +
-         res010 * d010 * (w010 + 0.5 + 1) + res011 * d011 * (w010 + 0.5) +
+         res010 * d010 * (w010 + 1.5) + res011 * d011 * (w010 + 0.5) +
          res100 * d100 * (w010 + 0.5) + res101 * d101 * (w010 + 0.5) + res110 * d110 * (w010 + 0.5) +
          res111 * d111 * (w010 + 0.5)) /
         6.0;
     grad_f[GID(ix0, jx1, kx1)] =
         (res000 * d000 * (w011 + 0.5) + res001 * d001 * (w011 + 0.5) + res010 * d010 * (w011 + 0.5) +
-         res011 * d011 * (w011 + 0.5 + 1) + res100 * d100 * (w011 + 0.5) +
+         res011 * d011 * (w011 + 1.5) + res100 * d100 * (w011 + 0.5) +
          res101 * d101 * (w011 + 0.5) + res110 * d110 * (w011 + 0.5) + res111 * d111 * (w011 + 0.5)) /
         6.0;
     grad_f[GID(ix1, jx0, kx0)] =
         (res000 * d000 * (w100 + 0.5) + res001 * d001 * (w100 + 0.5) + res010 * d010 * (w100 + 0.5) +
-         res011 * d011 * (w100 + 0.5) + res100 * d100 * (w100 + 0.5 + 1) +
+         res011 * d011 * (w100 + 0.5) + res100 * d100 * (w100 + 1.5) +
          res101 * d101 * (w100 + 0.5) + res110 * d110 * (w100 + 0.5) + res111 * d111 * (w100 + 0.5)) /
         6.0;
     grad_f[GID(ix1, jx0, kx1)] =
         (res000 * d000 * (w101 + 0.5) + res001 * d001 * (w101 + 0.5) + res010 * d010 * (w101 + 0.5) +
          res011 * d011 * (w101 + 0.5) + res100 * d100 * (w101 + 0.5) +
-         res101 * d101 * (w101 + 0.5 + 1) + res110 * d110 * (w101 + 0.5) +
+         res101 * d101 * (w101 + 1.5) + res110 * d110 * (w101 + 0.5) +
          res111 * d111 * (w101 + 0.5)) /
         6.0;
     grad_f[GID(ix1, jx1, kx0)] =
         (res000 * d000 * (w110 + 0.5) + res001 * d001 * (w110 + 0.5) + res010 * d010 * (w110 + 0.5) +
          res011 * d011 * (w110 + 0.5) + res100 * d100 * (w110 + 0.5) + res101 * d101 * (w110 + 0.5) +
-         res110 * d110 * (w110 + 0.5 + 1) + res111 * d111 * (w110 + 0.5)) /
+         res110 * d110 * (w110 + 1.5) + res111 * d111 * (w110 + 0.5)) /
         6.0;
     grad_f[GID(ix1, jx1, kx1)] =
         (res000 * d000 * (w111 + 0.5) + res001 * d001 * (w111 + 0.5) + res010 * d010 * (w111 + 0.5) +
          res011 * d011 * (w111 + 0.5) + res100 * d100 * (w111 + 0.5) + res101 * d101 * (w111 + 0.5) +
-         res110 * d110 * (w111 + 0.5) + res111 * d111 * (w111 + 0.5 + 1)) /
+         res110 * d110 * (w111 + 0.5) + res111 * d111 * (w111 + 1.5)) /
         6.0;
 }
 
 // ---------------------------------------------------------------------------
-// Solver 1: global SparseLU (baseline)
+// Solver 1: global SparseLU
 // ---------------------------------------------------------------------------
 static void backward_lu_impl(double *grad_f, const double *grad_u, const double *u, const double *f,
                              double h, int m, int n, int l, double x, double y, double z) {

@@ -1,5 +1,4 @@
-// 3D discrete adjoint SparseLU — same structure as Eikonal2D.cpp.
-// no source-corner (src) correction
+// 3D discrete adjoint SparseLU — no source-corner correction.
 
 
 #include <torch/extension.h>
@@ -131,7 +130,6 @@ static void forward(double *u, const double *f, double h, int m, int n, int l, d
 
 static void backward(double *grad_f, const double *grad_u, const double *u, const double *f,
                      double h, int m, int n, int l, double x, double y, double z) {
-    // x,y,z kept for API parity with Eikonal3D.cpp (corners are not pinned / Simpson-free)
     (void)x;
     (void)y;
     (void)z;
@@ -149,7 +147,7 @@ static void backward(double *grad_f, const double *grad_u, const double *u, cons
             for (int k = 0; k < l; k++) {
                 int this_id = get_id(i, j, k);
 
-                // Diff vs LU: do NOT pin source corners with A_ii=1; assemble them too.
+                // Source corners are assembled (not pinned to identity).
 
                 double uxmin = i == 0 ? u(i + 1, j, k)
                                       : (i == m - 1 ? u(i - 1, j, k)
@@ -214,8 +212,6 @@ static void backward(double *grad_f, const double *grad_u, const double *u, cons
     solver.factorize(A);
     Eigen::VectorXd res = solver.solve(g);
     for (int i = 0; i < m * n * l; i++) grad_f[i] = -res[i] * rhs[i];
-
-    // Diff vs LU: no Simpson source-corner overwrite of grad_f.
 }
 
 torch::Tensor eikonal_forward(torch::Tensor f, double h, double x, double y, double z) {

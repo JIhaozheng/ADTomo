@@ -200,7 +200,7 @@ static void adjderivonsource(
     }
 }
 
-// Zero-flux adjoint stencil with source-box ∇T (adjderivonsource).
+// Zero-flux adjoint stencil (uses source-box ∇T when at a source corner).
 static double adjoint_stencil_0f(const double *T, const double *lam, const double *delta,
                                  int m, int n, int l, int i, int j, int k, double h,
                                  double sx, double sy, double sz) {
@@ -316,21 +316,11 @@ static void backward(
     int m, int n, int l, double x, double y, double z) {
     const int nn = m * n * l;
     const double vol = h * h * h;
-    const double h2 = h * h;
-    const double lam_scale = 0.5 * h;
-
-    std::vector<double> delta(nn);
+    std::vector<double> delta(nn), lambda(nn);
     for (int i = 0; i < nn; ++i) delta[i] = grad_u[i] / vol;
-
-    std::vector<double> lambda(nn);
     solve_adjoint_fsm_0f(lambda.data(), u, delta.data(), m, n, l, h, x, y, z);
-
-    for (int i = 0; i < nn; ++i) grad_f[i] = (lambda[i] * lam_scale) * 2.0 * f[i] * h2;
+    for (int i = 0; i < nn; ++i) grad_f[i] = lambda[i] * f[i] * vol;
 }
-
-// ---------------------------------------------------------------------------
-// PyTorch interface — drop-in replacement for eikonal3d_adj_op
-// ---------------------------------------------------------------------------
 
 torch::Tensor eikonal_forward(torch::Tensor f, double h, double x, double y, double z) {
     TORCH_CHECK(f.dim() == 3, "f must be a 3D tensor");
@@ -379,7 +369,7 @@ torch::Tensor eikonal_solve_adjoint(torch::Tensor T, torch::Tensor delta, double
 }
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
-    m.def("forward", &eikonal_forward, "3D forward");
-    m.def("backward", &eikonal_backward, "3D zero-flux FSM adjoint");
-    m.def("solve_adjoint", &eikonal_solve_adjoint, "3D zero-flux FSM adjoint");
+    m.def("forward", &eikonal_forward, "Eikonal3D forward");
+    m.def("backward", &eikonal_backward, "Eikonal3D backward");
+    m.def("solve_adjoint", &eikonal_solve_adjoint, "Eikonal3D solve_adjoint");
 }

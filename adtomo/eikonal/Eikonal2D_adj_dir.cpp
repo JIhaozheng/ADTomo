@@ -138,7 +138,6 @@ static void adjderivonsource(const TAt &T_at, int nx, int ny, int i, int j, doub
     }
 }
 
-// Interior stencil; returns 0 on domain boundary (Dirichlet lambda=0).
 static double adjoint_stencil_dir(const double *T, const double *lam, const double *delta,
                                   int nx, int ny, int i, int j, double h,
                                   double sx, double sy) {
@@ -203,7 +202,6 @@ static void solve_adjoint_fsm_dir(double *lam, const double *T, const double *de
         old.assign(lam, lam + nn);
         for (int sx_d : {1, -1})
             for (int sy_d : {1, -1}) {
-                // Interior only (Dirichlet BC on boundary)
                 auto I = std::make_tuple(sx_d == 1 ? 1 : nx - 2, sx_d == 1 ? nx - 1 : 0, sx_d);
                 auto J = std::make_tuple(sy_d == 1 ? 1 : ny - 2, sy_d == 1 ? ny - 1 : 0, sy_d);
                 for (int i = std::get<0>(I); i != std::get<1>(I); i += std::get<2>(I))
@@ -222,11 +220,10 @@ static void backward(double *grad_f, const double *grad_u, const double *u, cons
                      int m, int n, double h, double x, double y) {
     const int nx = m + 1, ny = n + 1, nn = nx * ny;
     const double area = h * h;
-    const double lam_scale = 0.5;
     std::vector<double> delta(nn), lambda(nn);
     for (int i = 0; i < nn; ++i) delta[i] = grad_u[i] / area;
     solve_adjoint_fsm_dir(lambda.data(), u, delta.data(), nx, ny, h, x, y);
-    for (int i = 0; i < nn; ++i) grad_f[i] = (lambda[i] * lam_scale) * 2.0 * f[i] * area;
+    for (int i = 0; i < nn; ++i) grad_f[i] = lambda[i] * f[i] * area;
 }
 
 torch::Tensor eikonal_forward(torch::Tensor f, double h, double x, double y) {
@@ -251,6 +248,6 @@ torch::Tensor eikonal_backward(torch::Tensor grad_u, torch::Tensor u, torch::Ten
 }
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
-    m.def("forward", &eikonal_forward, "2D forward");
-    m.def("backward", &eikonal_backward, "2D Dirichlet FSM adjoint");
+    m.def("forward", &eikonal_forward, "Eikonal2D forward");
+    m.def("backward", &eikonal_backward, "Eikonal2D backward");
 }

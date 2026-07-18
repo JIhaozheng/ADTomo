@@ -100,7 +100,6 @@ static void upwind_split(double a, double &am, double &ap) {
     ap = (a + std::fabs(a)) * 0.5;
 }
 
-// 2D adjderivonsource: normal-projected ∇(-T) at source-box corners.
 template <typename TAt>
 static void adjderivonsource(const TAt &T_at, int nx, int ny, int i, int j, double h,
                              double sx, double sy, int ix0, int iy0, int ix1, int iy1,
@@ -215,11 +214,10 @@ static void backward(double *grad_f, const double *grad_u, const double *u, cons
                      int m, int n, double h, double x, double y) {
     const int nx = m + 1, ny = n + 1, nn = nx * ny;
     const double area = h * h;
-    const double lam_scale = 0.5;
     std::vector<double> delta(nn), lambda(nn);
     for (int i = 0; i < nn; ++i) delta[i] = grad_u[i] / area;
     solve_adjoint_fsm_0f(lambda.data(), u, delta.data(), nx, ny, h, x, y);
-    for (int i = 0; i < nn; ++i) grad_f[i] = (lambda[i] * lam_scale) * 2.0 * f[i] * area;
+    for (int i = 0; i < nn; ++i) grad_f[i] = lambda[i] * f[i] * area;
 }
 
 torch::Tensor eikonal_forward(torch::Tensor f, double h, double x, double y) {
@@ -256,7 +254,7 @@ torch::Tensor eikonal_solve_adjoint(torch::Tensor T, torch::Tensor delta, double
 }
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
-    m.def("forward", &eikonal_forward, "2D forward");
-    m.def("backward", &eikonal_backward, "2D zero-flux FSM adjoint");
-    m.def("solve_adjoint", &eikonal_solve_adjoint, "2D zero-flux FSM adjoint");
+    m.def("forward", &eikonal_forward, "Eikonal2D forward");
+    m.def("backward", &eikonal_backward, "Eikonal2D backward");
+    m.def("solve_adjoint", &eikonal_solve_adjoint, "Eikonal2D solve_adjoint");
 }
