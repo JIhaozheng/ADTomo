@@ -1,5 +1,4 @@
-// 3D continuous zero-flux FSM adjoint + source-corner (src) correction.
-// Src (source corners only): local LU patch + Simpson overwrite (same as Eikonal3D.cpp).
+// 3D continuous zero-flux FSM adjoint + source-corner (src) correction (same as Eikonal2D.cpp).
 
 #include <torch/extension.h>
 
