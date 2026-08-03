@@ -8,7 +8,6 @@
 conda create -n adtomo python=3.9 -y
 conda activate adtomo
 
-# GPU (CUDA 12.4)
 conda install pytorch torchvision pytorch-cuda=12.4 -c pytorch -c nvidia -y
 conda install numpy pandas matplotlib ninja pybind11 setuptools wheel -y
 ```
