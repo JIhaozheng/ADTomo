@@ -68,10 +68,11 @@ python test_gradient.py
 
 Each test file is directly executable after the editable installation. They
 are scientific validation scripts, not framework-collected test modules. They
-save headless diagnostic figures to `tests/figures/coordinate_transform.png`,
-`tests/figures/eikonal.png`, `tests/figures/grid_interpolation.png`, and
-`tests/figures/taylor_remainders.png`; these generated PNG files are ignored
-and never open an interactive window.
+save diagnostic figures to `tests/figures/eikonal.png`,
+`tests/figures/grid_interpolation.png`, and
+`tests/figures/taylor_remainders.png`. The three plotting scripts also call
+`plt.show()`, so the figures appear when an interactive Matplotlib backend is
+available. These generated PNG files are ignored.
 
 ## Synthetic workflow
 

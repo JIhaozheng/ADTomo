@@ -18,8 +18,6 @@ class ForwardGrid:
     """
 
     def __init__(self, station_lonlatdepth, event_lonlatdepth, model, spacing, padding=None):
-        if model.vp.device.type != "cpu" or model.vp.dtype != torch.float64:
-            raise ValueError("ForwardGrid requires a CPU torch.float64 VelocityModel")
         if not isinstance(spacing, (float, int)) or spacing <= 0:
             raise ValueError("spacing must be one positive isotropic scalar in km")
         self.spacing = float(spacing)
@@ -69,7 +67,7 @@ class ForwardGrid:
         ecef = local_to_ecef(xyz_local, self.station_ecef, self.basis)
         lon, lat, depth = ecef_to_spherical(ecef)
         self._check_model_coverage(model, lon, lat, depth)
-        self.model_sample_grid = torch.stack(
+        self.sample_grid = torch.stack(
             [self._normalize(lon, model.lon), self._normalize(lat, model.lat), self._normalize(depth, model.depth)],
             dim=-1,
         ).unsqueeze(0)
@@ -103,10 +101,8 @@ class ForwardGrid:
         """Differentiably sample a global ``(depth, latitude, longitude)`` field."""
         if tuple(field.shape) != self.model_shape:
             raise ValueError(f"global field shape {tuple(field.shape)} != model shape {self.model_shape}")
-        if field.device.type != "cpu" or field.dtype != torch.float64:
-            raise ValueError("forward-grid sampling requires CPU torch.float64 fields")
         return F.grid_sample(
-            field[None, None], self.model_sample_grid, mode="bilinear", padding_mode="border", align_corners=True
+            field[None, None], self.sample_grid, mode="bilinear", padding_mode="border", align_corners=True
         )[0, 0]
 
     def _live_event_index(self, event_lonlatdepth):

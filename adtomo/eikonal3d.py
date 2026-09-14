@@ -38,10 +38,7 @@ def solve_eikonal3d(velocity_zyx, source_xyz, spacing):
         raise ValueError("velocity must be a (z_local, y_local, x_local) field with at least two nodes per axis")
     if not torch.isfinite(velocity_zyx).all() or torch.any(velocity_zyx <= 0):
         raise ValueError("velocity must be finite and positive")
-    try:
-        spacing = float(spacing)
-    except (TypeError, ValueError) as error:
-        raise ValueError("spacing must be finite and positive") from error
+    spacing = float(spacing)
     if not math.isfinite(spacing) or spacing <= 0:
         raise ValueError("spacing must be finite and positive")
     source_xyz = torch.as_tensor(source_xyz, dtype=velocity_zyx.dtype, device=velocity_zyx.device)
