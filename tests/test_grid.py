@@ -6,7 +6,7 @@ import torch
 from adtomo import ForwardGrid, VelocityModel
 
 
-FIGURES = Path(__file__).resolve().parent / "figures"
+FIGURES = Path("figures")
 FIGURES.mkdir(exist_ok=True)
 
 lon = torch.arange(-121.0, -118.9, 0.1, dtype=torch.float64)

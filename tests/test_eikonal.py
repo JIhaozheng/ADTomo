@@ -6,7 +6,7 @@ import torch
 from adtomo import solve_eikonal2d, solve_eikonal3d
 
 
-FIGURES = Path(__file__).resolve().parent / "figures"
+FIGURES = Path("figures")
 FIGURES.mkdir(exist_ok=True)
 
 velocity_km_s = 5.0

@@ -17,13 +17,10 @@ class ForwardGrid:
     ``(x_local, y_local, z_local)`` = ``(East, North, Down)``.
     """
 
-    def __init__(self, station_lonlatdepth, event_lonlatdepth, model, spacing, padding=None):
-        if not isinstance(spacing, (float, int)) or spacing <= 0:
-            raise ValueError("spacing must be one positive isotropic scalar in km")
+    def __init__(self, station_lonlatdepth, event_lonlatdepth, model, spacing):
         self.spacing = float(spacing)
-        self.padding = 2.0 * self.spacing if padding is None else float(padding)
-        if self.padding < self.spacing:
-            raise ValueError("padding must leave at least one cell around the station")
+        if not math.isfinite(self.spacing) or self.spacing <= 0:
+            raise ValueError("spacing must be one positive isotropic scalar in km")
 
         ref = model.vp
         self.model_shape = tuple(model.vp.shape)
@@ -33,12 +30,6 @@ class ForwardGrid:
         self.event_lonlatdepth = torch.as_tensor(
             event_lonlatdepth, dtype=ref.dtype, device=ref.device
         ).reshape(-1, 3)
-        if (
-            len(self.event_lonlatdepth) == 0
-            or not torch.isfinite(self.station_lonlatdepth).all()
-            or not torch.isfinite(self.event_lonlatdepth).all()
-        ):
-            raise ValueError("station and at least one finite event are required")
 
         self.station_ecef = spherical_to_ecef(*self.station_lonlatdepth)
         self.basis = local_basis(self.station_lonlatdepth[0], self.station_lonlatdepth[1])
@@ -49,8 +40,8 @@ class ForwardGrid:
         self.event_local = ecef_to_local(event_ecef, self.station_ecef, self.basis)
 
         points = torch.cat([self.station_local[None], self.event_local], dim=0)
-        low = points.amin(dim=0) - self.padding
-        high = points.amax(dim=0) + self.padding
+        low = points.amin(dim=0) - 2.0 * self.spacing
+        high = points.amax(dim=0) + 2.0 * self.spacing
         nxyz = tuple(max(2, math.ceil(float((high[i] - low[i]) / self.spacing)) + 1) for i in range(3))
         self.origin = low
         self.x = low[0] + torch.arange(nxyz[0], dtype=ref.dtype, device=ref.device) * self.spacing
@@ -59,8 +50,6 @@ class ForwardGrid:
         self.shape = (len(self.z), len(self.y), len(self.x))
         self.station_index = self._index(self.station_local)
         self.event_index = self._index(self.event_local)
-        self._check_index(self.station_index, source=True)
-        self._check_index(self.event_index)
 
         z_local, y_local, x_local = torch.meshgrid(self.z, self.y, self.x, indexing="ij")
         xyz_local = torch.stack([x_local, y_local, z_local], dim=-1)
@@ -88,14 +77,10 @@ class ForwardGrid:
     def _index(self, local):
         return (local - self.origin) / self.spacing
 
-    def _check_index(self, index, source=False):
+    def _check_live_event_index(self, index):
         upper = torch.tensor([len(self.x) - 1, len(self.y) - 1, len(self.z) - 1], dtype=index.dtype, device=index.device)
-        if source:
-            inside = torch.all(index >= 0) and torch.all(index < upper)
-        else:
-            inside = torch.all(index >= 0) and torch.all(index <= upper)
-        if not inside:
-            raise ValueError("station or event lies outside the forward grid")
+        if not (torch.all(index >= 0) and torch.all(index <= upper)):
+            raise ValueError("live event lies outside the forward grid")
 
     def sample(self, field):
         """Differentiably sample a global ``(depth, latitude, longitude)`` field."""
@@ -115,7 +100,7 @@ class ForwardGrid:
             event_lonlatdepth[:, 0], event_lonlatdepth[:, 1], event_lonlatdepth[:, 2]
         )
         index = self._index(ecef_to_local(ecef, self.station_ecef, self.basis))
-        self._check_index(index)
+        self._check_live_event_index(index)
         return index
 
     def sample_events(self, traveltime, event_indices=None, events=None):
@@ -127,7 +112,6 @@ class ForwardGrid:
         index = self._live_event_index(events) if events is not None else self.event_index
         if event_indices is not None:
             index = index[torch.as_tensor(event_indices, dtype=torch.long, device=index.device)]
-        self._check_index(index)
         nx, ny, nz = len(self.x), len(self.y), len(self.z)
         query = torch.stack(
             [2.0 * index[:, 0] / (nx - 1) - 1.0, 2.0 * index[:, 1] / (ny - 1) - 1.0, 2.0 * index[:, 2] / (nz - 1) - 1.0],

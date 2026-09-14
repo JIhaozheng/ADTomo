@@ -19,7 +19,7 @@ def download_eigen(eigen_dir=os.path.join(ROOT, "adtomo", "eigen")):
     subprocess.check_call(["wget", "-O", archive, url])
     subprocess.check_call(["unzip", archive, "-d", eigen_dir])
 
-    src = os.path.join(eigen_dir, os.listdir(eigen_dir)[0],)
+    src = os.path.join(eigen_dir, "eigen-3.4.0")
     for name in os.listdir(src):
         os.rename(os.path.join(src, name), os.path.join(eigen_dir, name))
 

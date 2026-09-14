@@ -7,7 +7,7 @@ import torch
 from adtomo import ForwardGrid, VelocityModel, predict_phase_times, solve_eikonal3d
 
 
-FIGURES = Path(__file__).resolve().parent / "figures"
+FIGURES = Path("figures")
 FIGURES.mkdir(exist_ok=True)
 
 # Isolated C++ eikonal Taylor check.
