@@ -67,7 +67,10 @@ python test_gradient.py
 ```
 
 Each test file is directly executable and adds the adjacent source checkout to
-Python's import path.
+Python's import path. They are scientific validation scripts, not framework-
+collected test modules. They save headless diagnostic figures to
+`tests/figures/eikonal.png`, `tests/figures/grid_interpolation.png`, and
+`tests/figures/taylor_remainders.png`; these generated PNG files are ignored.
 
 ## Synthetic workflow
 

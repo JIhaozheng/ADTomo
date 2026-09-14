@@ -8,31 +8,25 @@ import torch
 from adtomo.coordinate import ecef_to_local, ecef_to_spherical, local_basis, local_to_ecef, spherical_to_ecef
 
 
-def test_spherical_ecef_roundtrip_and_basis():
-    points = torch.tensor([[-120.0, 35.0, 0.0], [-119.7, 34.8, 12.0]], dtype=torch.float64)
-    xyz_ecef = spherical_to_ecef(points[:, 0], points[:, 1], points[:, 2])
-    lon, lat, depth = ecef_to_spherical(xyz_ecef)
-    assert torch.allclose(torch.stack([lon, lat, depth], dim=-1), points, atol=1e-10)
-    basis = local_basis(torch.tensor(-120.0, dtype=torch.float64), torch.tensor(35.0, dtype=torch.float64))
-    assert torch.allclose(basis @ basis.T, torch.eye(3, dtype=torch.float64), atol=1e-12)
-    xyz_local = ecef_to_local(xyz_ecef, xyz_ecef[0], basis)
-    assert torch.allclose(local_to_ecef(xyz_local, xyz_ecef[0], basis), xyz_ecef, atol=1e-10)
+points_lonlatdepth = torch.tensor([[-120.0, 35.0, 0.0], [-119.7, 34.8, 12.0]], dtype=torch.float64)
+xyz_ecef = spherical_to_ecef(
+    points_lonlatdepth[:, 0], points_lonlatdepth[:, 1], points_lonlatdepth[:, 2]
+)
+lon, lat, depth = ecef_to_spherical(xyz_ecef)
+assert torch.allclose(torch.stack([lon, lat, depth], dim=-1), points_lonlatdepth, atol=1e-10)
 
+basis = local_basis(torch.tensor(-120.0, dtype=torch.float64), torch.tensor(35.0, dtype=torch.float64))
+assert torch.allclose(basis @ basis.T, torch.eye(3, dtype=torch.float64), atol=1e-12)
+xyz_local = ecef_to_local(xyz_ecef, xyz_ecef[0], basis)
+assert torch.allclose(local_to_ecef(xyz_local, xyz_ecef[0], basis), xyz_ecef, atol=1e-10)
 
-def test_coordinate_path_has_gradients():
-    points = torch.tensor([[-120.0, 35.0, 8.0]], dtype=torch.float64, requires_grad=True)
-    xyz_ecef = spherical_to_ecef(points[:, 0], points[:, 1], points[:, 2])
-    (xyz_ecef[..., 0].sum() + 0.3 * xyz_ecef[..., 1].sum()).backward()
-    assert points.grad is not None
-    assert torch.isfinite(points.grad).all()
-    assert torch.all(points.grad.abs() > 0)
+gradient_point_lonlatdepth = torch.tensor([[-120.0, 35.0, 8.0]], dtype=torch.float64, requires_grad=True)
+gradient_xyz_ecef = spherical_to_ecef(
+    gradient_point_lonlatdepth[:, 0], gradient_point_lonlatdepth[:, 1], gradient_point_lonlatdepth[:, 2]
+)
+(gradient_xyz_ecef[..., 0].sum() + 0.3 * gradient_xyz_ecef[..., 1].sum()).backward()
+assert gradient_point_lonlatdepth.grad is not None
+assert torch.isfinite(gradient_point_lonlatdepth.grad).all()
+assert torch.all(gradient_point_lonlatdepth.grad.abs() > 0)
 
-
-def main():
-    test_spherical_ecef_roundtrip_and_basis()
-    test_coordinate_path_has_gradients()
-    print(f"{Path(__file__).name}: passed")
-
-
-if __name__ == "__main__":
-    main()
+print(f"{Path(__file__).name}: passed")
