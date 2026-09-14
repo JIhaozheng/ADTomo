@@ -31,18 +31,18 @@ def smoothness(field, lon, lat, depth):
 class Tomography(nn.Module):
     """Arrival-time objective with smoothness and damping of velocity perturbations."""
 
-    def __init__(self, model, lambda_vp=0.0, lambda_vs=0.0, lambda_vp_damp=0.0, lambda_vs_damp=0.0):
+    def __init__(self, model, lambda_vp=0.0, lambda_vs=0.0, alpha_vp=0.0, alpha_vs=0.0):
         super().__init__()
         self.model = model
         self.register_buffer("vp0", model.vp.detach().clone())
         self.register_buffer("vs0", model.vs.detach().clone())
         self.lambda_vp = lambda_vp
         self.lambda_vs = lambda_vs
-        self.lambda_vp_damp = lambda_vp_damp
-        self.lambda_vs_damp = lambda_vs_damp
+        self.alpha_vp = alpha_vp
+        self.alpha_vs = alpha_vs
         self.data_loss = None
-        self.reg_vp = None
-        self.reg_vs = None
+        self.smooth_vp = None
+        self.smooth_vs = None
         self.damp_vp = None
         self.damp_vs = None
         self.total_loss = None
@@ -57,20 +57,20 @@ class Tomography(nn.Module):
         data_loss = residual.square().mean()
         dvp = self.model.vp - self.vp0
         dvs = self.model.vs - self.vs0
-        reg_vp = smoothness(dvp, self.model.lon, self.model.lat, self.model.depth)
-        reg_vs = smoothness(dvs, self.model.lon, self.model.lat, self.model.depth)
+        smooth_vp = smoothness(dvp, self.model.lon, self.model.lat, self.model.depth)
+        smooth_vs = smoothness(dvs, self.model.lon, self.model.lat, self.model.depth)
         damp_vp = dvp.square().mean()
         damp_vs = dvs.square().mean()
         loss = (
             data_loss
-            + self.lambda_vp * reg_vp
-            + self.lambda_vs * reg_vs
-            + self.lambda_vp_damp * damp_vp
-            + self.lambda_vs_damp * damp_vs
+            + self.lambda_vp * smooth_vp
+            + self.lambda_vs * smooth_vs
+            + self.alpha_vp * damp_vp
+            + self.alpha_vs * damp_vs
         )
         self.data_loss = data_loss.detach()
-        self.reg_vp = reg_vp.detach()
-        self.reg_vs = reg_vs.detach()
+        self.smooth_vp = smooth_vp.detach()
+        self.smooth_vs = smooth_vs.detach()
         self.damp_vp = damp_vp.detach()
         self.damp_vs = damp_vs.detach()
         self.total_loss = loss.detach()

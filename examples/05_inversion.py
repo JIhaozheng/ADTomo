@@ -13,8 +13,8 @@ DATA = Path("data")
 RESULTS = Path("results")
 LAMBDA_VP = float(os.environ.get("ADTOMO_LAMBDA_VP", "0.0"))
 LAMBDA_VS = float(os.environ.get("ADTOMO_LAMBDA_VS", "0.0"))
-LAMBDA_VP_DAMP = float(os.environ.get("ADTOMO_LAMBDA_VP_DAMP", "0.0"))
-LAMBDA_VS_DAMP = float(os.environ.get("ADTOMO_LAMBDA_VS_DAMP", "0.0"))
+ALPHA_VP = float(os.environ.get("ADTOMO_ALPHA_VP", "0.0"))
+ALPHA_VS = float(os.environ.get("ADTOMO_ALPHA_VS", "0.0"))
 
 
 def prepare_pick_groups(stations, events, picks, model):
@@ -95,8 +95,8 @@ tomography = Tomography(
     model,
     lambda_vp=LAMBDA_VP,
     lambda_vs=LAMBDA_VS,
-    lambda_vp_damp=LAMBDA_VP_DAMP,
-    lambda_vs_damp=LAMBDA_VS_DAMP,
+    alpha_vp=ALPHA_VP,
+    alpha_vs=ALPHA_VS,
 )
 optimizer = torch.optim.Adam([p for p in tomography.parameters() if p.requires_grad], lr=0.03)
 data_loss_history = []
@@ -114,7 +114,7 @@ for iteration in range(31):
     if iteration % 5 == 0 or iteration == 30:
         print(
             f"iteration {iteration:02d} total={loss.item():.6f} data={tomography.data_loss.item():.6f} "
-            f"smooth_vp={tomography.reg_vp.item():.6f} smooth_vs={tomography.reg_vs.item():.6f} "
+            f"smooth_vp={tomography.smooth_vp.item():.6f} smooth_vs={tomography.smooth_vs.item():.6f} "
             f"damp_vp={tomography.damp_vp.item():.6f} damp_vs={tomography.damp_vs.item():.6f}"
         )
 
