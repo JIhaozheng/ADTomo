@@ -43,7 +43,7 @@ def prepare_pick_groups(stations, events, picks, model):
     return groups
 
 
-def plot_progress(true, initial, model, loss_history, path):
+def plot_progress(true, initial, model, data_loss_history, total_loss_history, path):
     depth_index = int(torch.argmin((model.depth - 15.0).abs()))
     depth_km = model.depth[depth_index].item()
     extent = [model.lon[0].item(), model.lon[-1].item(), model.lat[0].item(), model.lat[-1].item()]
@@ -69,11 +69,13 @@ def plot_progress(true, initial, model, loss_history, path):
             axis.set_ylabel("latitude (deg)")
             figure.colorbar(image, ax=axis, shrink=0.8, label="km/s")
     axis = figure.add_subplot(layout[:, 3])
-    axis.semilogy(loss_history, "o-", color="tab:blue")
+    axis.semilogy(data_loss_history, "o-", color="tab:blue", label="Data MSE")
+    axis.semilogy(total_loss_history, "o-", color="tab:orange", label="Total objective")
     axis.set_title("Arrival-time inversion")
     axis.set_xlabel("Adam iteration")
-    axis.set_ylabel("phase-time MSE (s²)")
+    axis.set_ylabel("objective (s²)")
     axis.grid(alpha=0.3)
+    axis.legend()
     figure.suptitle(f"Two-grid spherical inversion progress at depth {depth_km:.1f} km")
     figure.savefig(path, dpi=180)
     plt.close(figure)
@@ -89,11 +91,13 @@ groups = prepare_pick_groups(stations, events, picks, model)
 
 tomography = Tomography(model, lambda_vp=LAMBDA_VP, lambda_vs=LAMBDA_VS)
 optimizer = torch.optim.Adam([p for p in tomography.parameters() if p.requires_grad], lr=0.03)
-loss_history = []
+data_loss_history = []
+total_loss_history = []
 for iteration in range(31):
     optimizer.zero_grad()
     loss = tomography(groups)
-    loss_history.append(tomography.data_loss.item())
+    data_loss_history.append(tomography.data_loss.item())
+    total_loss_history.append(tomography.total_loss.item())
     if iteration == 0:
         initial_loss = tomography.data_loss.item()
     if iteration < 30:
@@ -110,5 +114,8 @@ torch.save(
     {"lon": model.lon, "lat": model.lat, "depth": model.depth, "vp": model.vp.detach(), "vs": model.vs.detach()},
     RESULTS / "model_inverted.pt",
 )
-plot_progress(true, initial, model, loss_history, RESULTS / "inversion_progress.png")
-print(f"saved final model to {RESULTS}; phase-time MSE {initial_loss:.6f} -> {tomography.data_loss.item():.6f}")
+plot_progress(true, initial, model, data_loss_history, total_loss_history, RESULTS / "inversion_progress.png")
+print(
+    f"saved final model to {RESULTS}; data MSE {initial_loss:.6f} -> {tomography.data_loss.item():.6f}; "
+    f"minimum Vp/Vs {model.vp.detach().min().item():.6f}/{model.vs.detach().min().item():.6f} km/s"
+)

@@ -82,7 +82,22 @@ direct_residual = torch.cat(
     ]
 )
 assert torch.allclose(data_only_loss, direct_residual.square().mean())
-assert smoothness(torch.full_like(objective_model.vp, 0.2)).item() == 0.0
+assert smoothness(
+    torch.full_like(objective_model.vp, 0.2), objective_model.lon, objective_model.lat, objective_model.depth
+).item() == 0.0
+
+# A linear physical depth gradient has the same penalty on coarse and fine depth axes.
+depth_gradient = 0.02
+depth_coarse = torch.tensor([0.0, 5.0, 10.0], dtype=torch.float64)
+depth_fine = torch.tensor([0.0, 2.5, 5.0, 7.5, 10.0], dtype=torch.float64)
+lon_small = torch.tensor([-120.0, -119.9], dtype=torch.float64)
+lat_small = torch.tensor([35.0, 35.1], dtype=torch.float64)
+field_coarse = (depth_gradient * depth_coarse)[:, None, None].expand(-1, len(lat_small), len(lon_small))
+field_fine = (depth_gradient * depth_fine)[:, None, None].expand(-1, len(lat_small), len(lon_small))
+coarse_smoothness = smoothness(field_coarse, lon_small, lat_small, depth_coarse)
+fine_smoothness = smoothness(field_fine, lon_small, lat_small, depth_fine)
+assert torch.allclose(coarse_smoothness, torch.tensor(depth_gradient**2, dtype=torch.float64))
+assert torch.allclose(fine_smoothness, coarse_smoothness)
 
 regularized = Tomography(objective_model, lambda_vp=0.5, lambda_vs=0.25)
 with torch.no_grad():

@@ -52,24 +52,26 @@ Event-origin corrections belong to a future joint event/velocity inversion.
 
 ## Velocity objective
 
-`Tomography` combines the global arrival-time MSE with optional smoothness of
-velocity perturbations relative to the initial model:
+`Tomography` combines the global arrival-time MSE with a physical
+spatial-gradient penalty on velocity perturbations relative to the initial
+model:
 
 ```text
-J = data_MSE + lambda_vp * smoothness(Vp - Vp0)
-             + lambda_vs * smoothness(Vs - Vs0)
+J = (1/N) sum_i (predicted_phase_dt_i - observed_phase_dt_i)^2
+    + lambda_vp ||grad_km(Vp - Vp0)||^2
+    + lambda_vs ||grad_km(Vs - Vs0)||^2
 ```
 
 `Vp0` and `Vs0` are fixed buffers captured when the objective is constructed.
-The smoothness term is the mean squared first difference along depth, latitude,
-and longitude. Both weights default to zero, preserving the unregularized
-inversion. Set `ADTOMO_LAMBDA_VP` and `ADTOMO_LAMBDA_VS` when running the
-synthetic inversion to compare a regularized case.
+Depth differences use km directly; latitude uses r dphi and longitude uses
+r cos(phi) dlambda. Both weights default to zero, preserving the
+unregularized inversion. Set `ADTOMO_LAMBDA_VP` and `ADTOMO_LAMBDA_VS` when
+running the synthetic inversion to compare a regularized case.
 
 ## Install
 
 ```bash
-cd /path/to/ADTomo_hz
+cd /path/to/ADTomo
 pip install -r requirement.txt
 python setup.py build_ext --inplace
 pip install -e . --no-build-isolation
@@ -82,7 +84,7 @@ To run one test script from the test directory itself, build the extensions
 once, then use:
 
 ```bash
-cd /path/to/ADTomo_hz/tests
+cd /path/to/ADTomo/tests
 python test_coordinate.py
 python test_eikonal.py
 python test_grid.py

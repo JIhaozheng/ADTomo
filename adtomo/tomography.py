@@ -4,6 +4,7 @@ import torch
 import torch.nn as nn
 
 from .eikonal3d import solve_eikonal3d
+from .coordinate import R_EARTH_KM
 
 
 def predict_travel_times(model, grid, phase, event_indices=None):
@@ -13,12 +14,18 @@ def predict_travel_times(model, grid, phase, event_indices=None):
     return grid.sample_events(traveltime, event_indices=event_indices)
 
 
-def smoothness(model):
-    """Mean squared first differences of a (depth, latitude, longitude) field."""
-    dz = model[1:, :, :] - model[:-1, :, :]
-    dy = model[:, 1:, :] - model[:, :-1, :]
-    dx = model[:, :, 1:] - model[:, :, :-1]
-    return dz.square().mean() + dy.square().mean() + dx.square().mean()
+def smoothness(field, lon, lat, depth):
+    """Mean squared physical gradients of a (depth, latitude, longitude) field."""
+    radius = R_EARTH_KM - depth
+    dz_km = depth[1:] - depth[:-1]
+    dlat = torch.deg2rad(lat[1:] - lat[:-1])
+    dlon = torch.deg2rad(lon[1:] - lon[:-1])
+    grad_z = (field[1:, :, :] - field[:-1, :, :]) / dz_km[:, None, None]
+    grad_y = (field[:, 1:, :] - field[:, :-1, :]) / (radius[:, None, None] * dlat[None, :, None])
+    grad_x = (field[:, :, 1:] - field[:, :, :-1]) / (
+        radius[:, None, None] * torch.cos(torch.deg2rad(lat))[None, :, None] * dlon[None, None, :]
+    )
+    return grad_z.square().mean() + grad_y.square().mean() + grad_x.square().mean()
 
 
 class Tomography(nn.Module):
@@ -34,8 +41,9 @@ class Tomography(nn.Module):
         self.data_loss = None
         self.reg_vp = None
         self.reg_vs = None
+        self.total_loss = None
 
-    def forward(self, station_groups, data_scale=1.0):
+    def forward(self, station_groups):
         residuals = []
         for grid, phase_groups in station_groups:
             for phase, grid_event_indices, observed_phase_dt in phase_groups:
@@ -43,10 +51,11 @@ class Tomography(nn.Module):
                 residuals.append(predicted - observed_phase_dt)
         residual = torch.cat(residuals)
         data_loss = residual.square().mean()
-        reg_vp = smoothness(self.model.vp - self.vp0)
-        reg_vs = smoothness(self.model.vs - self.vs0)
-        loss = data_scale * data_loss + self.lambda_vp * reg_vp + self.lambda_vs * reg_vs
+        reg_vp = smoothness(self.model.vp - self.vp0, self.model.lon, self.model.lat, self.model.depth)
+        reg_vs = smoothness(self.model.vs - self.vs0, self.model.lon, self.model.lat, self.model.depth)
+        loss = data_loss + self.lambda_vp * reg_vp + self.lambda_vs * reg_vs
         self.data_loss = data_loss.detach()
         self.reg_vp = reg_vp.detach()
         self.reg_vs = reg_vs.detach()
+        self.total_loss = loss.detach()
         return loss
