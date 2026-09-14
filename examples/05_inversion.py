@@ -1,15 +1,18 @@
 """Invert direct global Vp/Vs from fixed catalog arrival times."""
 
 from pathlib import Path
+import os
 
 import pandas as pd
 import torch
 import matplotlib.pyplot as plt
 
-from adtomo import ForwardGrid, VelocityModel, predict_travel_times
+from adtomo import ForwardGrid, Tomography, VelocityModel
 
 DATA = Path("data")
 RESULTS = Path("results")
+LAMBDA_VP = float(os.environ.get("ADTOMO_LAMBDA_VP", "0.0"))
+LAMBDA_VS = float(os.environ.get("ADTOMO_LAMBDA_VS", "0.0"))
 
 
 def prepare_pick_groups(stations, events, picks, model):
@@ -27,6 +30,7 @@ def prepare_pick_groups(stations, events, picks, model):
         )
         grid = ForwardGrid(station_lonlatdepth, event_lonlatdepth, model, spacing=5.0)
 
+        phase_groups = []
         for phase, phase_picks in station_picks.groupby("phase_type", sort=False):
             grid_event_indices = torch.tensor(pd.Index(station_event_ids).get_indexer(phase_picks.event_id), dtype=torch.long)
             catalog_event_time = pd.to_datetime(phase_picks.event_id.map(events_by_id.event_time))
@@ -34,14 +38,8 @@ def prepare_pick_groups(stations, events, picks, model):
                 (pd.to_datetime(phase_picks.phase_time) - catalog_event_time).dt.total_seconds().to_numpy(),
                 dtype=torch.float64,
             )
-            groups.append(
-                {
-                    "grid": grid,
-                    "phase": phase,
-                    "grid_event_indices": grid_event_indices,
-                    "observed_phase_dt": phase_dt,
-                }
-            )
+            phase_groups.append((phase, grid_event_indices, phase_dt))
+        groups.append((grid, phase_groups))
     return groups
 
 
@@ -89,28 +87,23 @@ events = pd.read_csv(DATA / "events.csv", dtype={"event_id": str})
 picks = pd.read_csv(DATA / "picks.csv", dtype={"event_id": str, "station_id": str})
 groups = prepare_pick_groups(stations, events, picks, model)
 
-optimizer = torch.optim.Adam([model.vp, model.vs], lr=0.03)
+tomography = Tomography(model, lambda_vp=LAMBDA_VP, lambda_vs=LAMBDA_VS)
+optimizer = torch.optim.Adam([p for p in tomography.parameters() if p.requires_grad], lr=0.03)
 loss_history = []
 for iteration in range(31):
     optimizer.zero_grad()
-    residuals = []
-    for group in groups:
-        predicted_phase_dt = predict_travel_times(
-            model,
-            group["grid"],
-            group["phase"],
-            event_indices=group["grid_event_indices"],
-        )
-        residuals.append(predicted_phase_dt - group["observed_phase_dt"])
-    loss = torch.cat(residuals).square().mean()
-    loss_history.append(loss.item())
+    loss = tomography(groups)
+    loss_history.append(tomography.data_loss.item())
     if iteration == 0:
-        initial_loss = loss.item()
+        initial_loss = tomography.data_loss.item()
     if iteration < 30:
         loss.backward()
         optimizer.step()
     if iteration % 5 == 0 or iteration == 30:
-        print(f"iteration {iteration:02d} phase-time MSE {loss.item():.6f}")
+        print(
+            f"iteration {iteration:02d} total={loss.item():.6f} data={tomography.data_loss.item():.6f} "
+            f"reg_vp={tomography.reg_vp.item():.6f} reg_vs={tomography.reg_vs.item():.6f}"
+        )
 
 RESULTS.mkdir(exist_ok=True)
 torch.save(
@@ -118,4 +111,4 @@ torch.save(
     RESULTS / "model_inverted.pt",
 )
 plot_progress(true, initial, model, loss_history, RESULTS / "inversion_progress.png")
-print(f"saved final model to {RESULTS}; loss {initial_loss:.6f} -> {loss.item():.6f}")
+print(f"saved final model to {RESULTS}; phase-time MSE {initial_loss:.6f} -> {tomography.data_loss.item():.6f}")

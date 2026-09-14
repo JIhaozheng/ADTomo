@@ -50,6 +50,22 @@ predicted_phase_dt = travel_time
 
 Event-origin corrections belong to a future joint event/velocity inversion.
 
+## Velocity objective
+
+`Tomography` combines the global arrival-time MSE with optional smoothness of
+velocity perturbations relative to the initial model:
+
+```text
+J = data_MSE + lambda_vp * smoothness(Vp - Vp0)
+             + lambda_vs * smoothness(Vs - Vs0)
+```
+
+`Vp0` and `Vs0` are fixed buffers captured when the objective is constructed.
+The smoothness term is the mean squared first difference along depth, latitude,
+and longitude. Both weights default to zero, preserving the unregularized
+inversion. Set `ADTOMO_LAMBDA_VP` and `ADTOMO_LAMBDA_VS` when running the
+synthetic inversion to compare a regularized case.
+
 ## Install
 
 ```bash

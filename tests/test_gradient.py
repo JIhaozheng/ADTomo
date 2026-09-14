@@ -4,7 +4,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import torch
 
-from adtomo import ForwardGrid, VelocityModel, predict_travel_times, solve_eikonal3d
+from adtomo import ForwardGrid, Tomography, VelocityModel, predict_travel_times, smoothness, solve_eikonal3d
 
 
 FIGURES = Path("figures")
@@ -60,6 +60,44 @@ full_slopes = [
     for left, right, epsilon, next_epsilon in zip(full_remainders, full_remainders[1:], epsilons, epsilons[1:])
 ]
 assert 1.7 < sorted(full_slopes)[len(full_slopes) // 2] < 2.3
+
+# Regularized tomography objective: smoothness applies to perturbations only.
+objective_model = VelocityModel(lon, lat, depth, vp, vp / 1.73, trainable=True)
+objective_grid = ForwardGrid(station_lonlatdepth, event_lonlatdepth, objective_model, spacing=5.0)
+station_groups = [
+    (
+        objective_grid,
+        [
+            ("P", torch.tensor([0]), torch.tensor([3.0], dtype=torch.float64)),
+            ("S", torch.tensor([0]), torch.tensor([5.0], dtype=torch.float64)),
+        ],
+    )
+]
+data_only = Tomography(objective_model)
+data_only_loss = data_only(station_groups)
+direct_residual = torch.cat(
+    [
+        predict_travel_times(objective_model, objective_grid, "P") - 3.0,
+        predict_travel_times(objective_model, objective_grid, "S") - 5.0,
+    ]
+)
+assert torch.allclose(data_only_loss, direct_residual.square().mean())
+assert smoothness(torch.full_like(objective_model.vp, 0.2)).item() == 0.0
+
+regularized = Tomography(objective_model, lambda_vp=0.5, lambda_vs=0.25)
+with torch.no_grad():
+    objective_model.vp[2, 3, 4] += 0.2
+    objective_model.vs[2, 3, 4] -= 0.1
+regularized_loss = regularized(station_groups)
+assert regularized.reg_vp.item() > 0.0
+assert regularized.reg_vs.item() > 0.0
+assert torch.allclose(
+    regularized_loss,
+    regularized.data_loss + 0.5 * regularized.reg_vp + 0.25 * regularized.reg_vs,
+)
+regularized_loss.backward()
+assert torch.isfinite(objective_model.vp.grad).all() and objective_model.vp.grad.abs().sum() > 0
+assert torch.isfinite(objective_model.vs.grad).all() and objective_model.vs.grad.abs().sum() > 0
 
 epsilons_tensor = torch.tensor(epsilons, dtype=torch.float64)
 reference = full_remainders[0] * (epsilons_tensor / epsilons_tensor[0]).square()
