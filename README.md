@@ -1,71 +1,90 @@
 # ADTomo
 
-3D traveltime tomography with PyTorch (C++ Eikonal / adjoint extensions).
+ADTomo is a small CPU implementation of differentiable spherical eikonal
+tomography. It has exactly two grids:
 
-## 1. Environment (conda recommended)
+1. A global velocity model `V(depth, latitude, longitude)`.
+2. A local Cartesian East/North/Down fast-sweeping grid for each station.
 
-```bash
-conda create -n adtomo python=3.9 -y
-conda activate adtomo
+The Earth remains spherical. Geographic points are converted to ECEF, rigidly
+translated and rotated into the station-local END frame, then sampled from the
+global model with PyTorch interpolation.
 
-conda install pytorch torchvision pytorch-cuda=12.4 -c pytorch -c nvidia -y
-conda install numpy pandas matplotlib ninja pybind11 setuptools wheel -y
+## Conventions
+
+- longitude: degrees east; latitude: degrees north; depth: km positive down
+- velocity: km/s; time: seconds; Earth radius: 6371 km
+- Python fields: `(z, y, x)`; physical coordinates: `(x, y, z)`
+- local axes: East, North, Down
+- retained C++ kernels: CPU-only, `torch.float64`, and one isotropic spacing
+
+The C++ kernels store fields in `(x, y, z)`. The Python wrappers hide that
+detail, so all public fields use `(z, y, x)`.
+
+## Catalog times
+
+The catalog preserves ISO origin and phase timestamps. Every pick is converted
+to its event-relative observed time:
+
+```text
+phase_dt = phase_time - catalog_event_time
 ```
 
-CPU-only: replace the PyTorch line with  
-`conda install pytorch torchvision cpuonly -c pytorch -y`.
+The modeled time is:
 
-## 2. Build and install
+```text
+predicted_phase_dt = event_dt + travel_time
+```
+
+For velocity inversion, `event_dt` is fixed to zero. A future joint inversion
+can make it trainable; then `new_event_time = catalog_event_time + event_dt`.
+
+## Install
 
 ```bash
-cd /path/to/ADTomo
+cd /path/to/ADTomo_hz
+pip install -r requirement.txt
 python setup.py build_ext --inplace
 pip install -e . --no-build-isolation
+python -m pytest -q
 ```
 
-Check: `python -c "from adtomo.Eikonal3d_0f_src import Eikonal3D; print('ok')"`.
+The first build downloads Eigen and compiles only `eikonal2d_op` and
+`eikonal3d_op`.
 
-## 3. Backends (short names)
-
-| Name | Meaning |
-|------|---------|
-| **FSM** | Fast Sweeping Method |
-| **`LU`** | Discrete adjoint (forked from [AI4EPS/ADTomo](https://github.com/AI4EPS/ADTomo)); gradient baseline |
-| **`global`** | SparseLU discrete adjoint |
-| **`0f`** | Continuous FSM + Neumann (zero-flux) B.C. |
-| **`0f_src`** | Same as `0f` + source gradient correction |
-| **`dir`** | Continuous FSM + Dirichlet B.C. |
-| **`ordered`** | Discrete ordered adjoint (Li et al., 2013) |
-
-## 4. Tests
+To run one test script from the test directory itself, build the extensions
+once, then use:
 
 ```bash
-cd tests
-python compare_with_LUbaseline.py   # vs LU: timing + gradient fields
-python test_all_eikonal_grad.py     # gradient test for all adjoint backends
+cd /path/to/ADTomo_hz/tests
+python test_eikonal.py
+python test_coordinate.py
+python test_grid.py
+python test_gradient.py
 ```
 
-Figures: `tests/gradtest_figs/`.
+Each test file is directly executable; it invokes its own pytest collection.
+`tests/conftest.py` adds the adjacent source checkout to Python's import path.
 
-`LU`, `ordered`, and `0f_src` pass the gradient test; vs LU, they also have the smallest gradient errors. Neumann B.C. (`0f`) and Dirichlet B.C. (`dir`) can reach ~1e-1 error at a few points; `dir` can reach 
-~1e-8 near the boundary.
-
-<img height="400" alt="gradient_field" src="https://github.com/user-attachments/assets/339e5086-72f7-440b-bd92-2651a18feaa0" /><img height="400" alt="gradient_test" src="https://github.com/user-attachments/assets/27a77131-b444-49ff-b126-09f4f951de8c" />
-
-
-
-## 5. Checkerboard example
+## Synthetic workflow
 
 ```bash
-cd examples
-python 01.gen_velnpz.py    # set amp for true / initial velocity
-python 02.a.gen_evecsv.py
-python 02.b.gen_stacsv.py
-python 03.gen_pickcsv.py     # picks from true velocity
-python 04.inversion.py       # single-process inversion
-# torchrun --nproc_per_node=2 04.inversion_parallel.py   # optional
-python 05.readnpz.py
+python examples/00_gen_velocity.py
+python examples/01_gen_stations.py
+python examples/02_gen_events.py
+python examples/03_gen_picks.py
+python examples/04_forward.py
+python examples/05_inversion.py
 ```
 
-Output: `examples/checkerboard/inversion/`.
-<img width="600" alt="loss_curve" src="https://github.com/user-attachments/assets/d04139e1-de8b-41f9-bb12-171bcd1d9dab" />
+Catalog files are written to `examples/data/`; the inversion writes one final
+model and `inversion_progress.png` to `examples/results/`.
+
+The complete forward path stays visible:
+
+```python
+grid = ForwardGrid(station, events, model, spacing=5.0)
+phase_time = predict_phase_times(model, grid, "P", event_dt)
+loss = ((phase_time - observed_phase_dt) ** 2).mean()
+loss.backward()
+```

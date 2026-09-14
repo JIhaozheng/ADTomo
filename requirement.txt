@@ -1,6 +1,6 @@
 # Python >= 3.9 recommended
-# conda create -n adtomo python=3.9 -y
-# pip install -r Requirement.txt
+# conda create -n adtomo_hz python=3.9 -y
+# pip install -r requirement.txt
 # python setup.py build_ext --inplace
 
 torch>=2.0
@@ -13,3 +13,4 @@ ninja>=1.11
 pybind11>=2.10
 setuptools>=65
 wheel
+pytest>=7

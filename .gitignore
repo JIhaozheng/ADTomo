@@ -13,5 +13,7 @@ adtomo/libtorch/
 build/
 __pycache__
 .DS_Store
-
+examples/data/
+examples/results/
+.ipynb_checkpoints/
 
