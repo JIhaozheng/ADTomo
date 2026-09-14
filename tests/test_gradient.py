@@ -1,9 +1,6 @@
 import math
 from pathlib import Path
 
-import matplotlib
-
-matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import torch
 
@@ -85,7 +82,7 @@ assert 1.7 < sorted(full_slopes)[len(full_slopes) // 2] < 2.3
 
 epsilons_tensor = torch.tensor(epsilons, dtype=torch.float64)
 reference = full_remainders[0] * (epsilons_tensor / epsilons_tensor[0]).square()
-plt.figure(figsize=(5, 4))
+figure = plt.figure(figsize=(5, 4))
 plt.loglog(epsilons, full_remainders, "o-", label="Full-chain remainder")
 plt.loglog(epsilons, reference, "--", label=r"$O(\epsilon^2)$")
 plt.xlabel(r"$\epsilon$")
@@ -94,7 +91,7 @@ plt.title("Global Vp Taylor test")
 plt.grid(True, which="both", alpha=0.3)
 plt.legend()
 plt.tight_layout()
-plt.savefig(FIGURES / "taylor_remainders.png", dpi=200)
-plt.close()
+figure.savefig(FIGURES / "taylor_remainders.png", dpi=200)
+plt.show()
 
 print(f"{Path(__file__).name}: passed")

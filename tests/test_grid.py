@@ -1,8 +1,5 @@
 from pathlib import Path
 
-import matplotlib
-
-matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import torch
 
@@ -26,7 +23,7 @@ grid = ForwardGrid(station_lonlatdepth, event_lonlatdepth, model, spacing=5.0)
 # This asymmetric linear field exposes both interpolation and axis-order errors.
 global_field = 0.01 * depth_grid + 0.1 * lat_grid + lon_grid
 local_field = grid.sample(global_field)
-sample_coordinates = grid.model_sample_grid[0]
+sample_coordinates = grid.sample_grid[0]
 local_lon = model.lon[0] + (sample_coordinates[..., 0] + 1) * (model.lon[-1] - model.lon[0]) / 2
 local_lat = model.lat[0] + (sample_coordinates[..., 1] + 1) * (model.lat[-1] - model.lat[0]) / 2
 local_depth = model.depth[0] + (sample_coordinates[..., 2] + 1) * (model.depth[-1] - model.depth[0]) / 2
@@ -42,7 +39,7 @@ local_slice = local_field[local_down_index]
 vmin = min(global_slice.min().item(), local_slice.min().item())
 vmax = max(global_slice.max().item(), local_slice.max().item())
 
-plt.figure(figsize=(10, 4))
+figure = plt.figure(figsize=(10, 4))
 plt.subplot(1, 2, 1)
 image = plt.imshow(
     global_slice,
@@ -71,7 +68,7 @@ plt.xlabel("East (km)")
 plt.ylabel("North (km)")
 plt.colorbar(image, label="Synthetic field")
 plt.tight_layout()
-plt.savefig(FIGURES / "grid_interpolation.png", dpi=200)
-plt.close()
+figure.savefig(FIGURES / "grid_interpolation.png", dpi=200)
+plt.show()
 
 print(f"{Path(__file__).name}: passed")

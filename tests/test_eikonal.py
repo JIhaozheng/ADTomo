@@ -1,8 +1,5 @@
 from pathlib import Path
 
-import matplotlib
-
-matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import torch
 
@@ -57,7 +54,7 @@ rows = [
         f"3-D at Down={source_z_index} km",
     ),
 ]
-plt.figure(figsize=(12, 7))
+figure = plt.figure(figsize=(12, 7))
 for row, (numerical, analytic, difference, source, title) in enumerate(rows):
     vmax = max(numerical.max().item(), analytic.max().item())
     difference_limit = difference.abs().max().item()
@@ -84,7 +81,7 @@ for row, (numerical, analytic, difference, source, title) in enumerate(rows):
         plt.ylabel("North (km)")
         plt.colorbar(image, label="Travel time (s)" if column < 2 else "Difference (s)")
 plt.tight_layout()
-plt.savefig(FIGURES / "eikonal.png", dpi=200)
-plt.close()
+figure.savefig(FIGURES / "eikonal.png", dpi=200)
+plt.show()
 
 print(f"{Path(__file__).name}: passed")
