@@ -66,11 +66,12 @@ python test_grid.py
 python test_gradient.py
 ```
 
-Each test file is directly executable and adds the adjacent source checkout to
-Python's import path. They are scientific validation scripts, not framework-
-collected test modules. They save headless diagnostic figures to
+Each test file is directly executable after the editable installation. They
+are scientific validation scripts, not framework-collected test modules. They
+save headless diagnostic figures to `tests/figures/coordinate_transform.png`,
 `tests/figures/eikonal.png`, `tests/figures/grid_interpolation.png`, and
-`tests/figures/taylor_remainders.png`; these generated PNG files are ignored.
+`tests/figures/taylor_remainders.png`; these generated PNG files are ignored
+and never open an interactive window.
 
 ## Synthetic workflow
 

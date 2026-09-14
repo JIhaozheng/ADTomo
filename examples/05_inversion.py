@@ -1,14 +1,10 @@
 """Invert direct global Vp/Vs from fixed catalog arrival times."""
 
 from pathlib import Path
-import sys
 
 import pandas as pd
 import torch
 import matplotlib.pyplot as plt
-
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
 
 from adtomo import ForwardGrid, VelocityModel, predict_phase_times
 

@@ -1,13 +1,9 @@
 """Show one station's explicit spherical forward calculation."""
 
 from pathlib import Path
-import sys
 
 import pandas as pd
 import torch
-
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
 
 from adtomo import ForwardGrid, VelocityModel, solve_eikonal3d
 

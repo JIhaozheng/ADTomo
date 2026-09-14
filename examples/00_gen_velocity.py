@@ -1,12 +1,8 @@
 """Generate true and perturbed initial spherical velocity models."""
 
 from pathlib import Path
-import sys
 
 import torch
-
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
 
 DATA = Path(__file__).resolve().parent / "data"
 

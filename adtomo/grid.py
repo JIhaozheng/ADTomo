@@ -69,7 +69,7 @@ class ForwardGrid:
         ecef = local_to_ecef(xyz_local, self.station_ecef, self.basis)
         lon, lat, depth = ecef_to_spherical(ecef)
         self._check_model_coverage(model, lon, lat, depth)
-        self.model_grid = torch.stack(
+        self.model_sample_grid = torch.stack(
             [self._normalize(lon, model.lon), self._normalize(lat, model.lat), self._normalize(depth, model.depth)],
             dim=-1,
         ).unsqueeze(0)
@@ -105,7 +105,9 @@ class ForwardGrid:
             raise ValueError(f"global field shape {tuple(field.shape)} != model shape {self.model_shape}")
         if field.device.type != "cpu" or field.dtype != torch.float64:
             raise ValueError("forward-grid sampling requires CPU torch.float64 fields")
-        return F.grid_sample(field[None, None], self.model_grid, mode="bilinear", padding_mode="border", align_corners=True)[0, 0]
+        return F.grid_sample(
+            field[None, None], self.model_sample_grid, mode="bilinear", padding_mode="border", align_corners=True
+        )[0, 0]
 
     def _live_event_index(self, event_lonlatdepth):
         event_lonlatdepth = torch.as_tensor(

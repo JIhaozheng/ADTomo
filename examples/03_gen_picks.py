@@ -1,13 +1,9 @@
 """Generate absolute P and S phase timestamps from the true model."""
 
 from pathlib import Path
-import sys
 
 import pandas as pd
 import torch
-
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
 
 from adtomo import ForwardGrid, VelocityModel, predict_travel_times
 

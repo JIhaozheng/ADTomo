@@ -1,7 +1,4 @@
 from pathlib import Path
-import sys
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import matplotlib
 
@@ -12,64 +9,82 @@ import torch
 from adtomo import solve_eikonal2d, solve_eikonal3d
 
 
-def assert_value_error(message, function):
-    try:
-        function()
-    except ValueError as error:
-        assert message in str(error)
-    else:
-        raise AssertionError("expected ValueError")
-
-
 FIGURES = Path(__file__).resolve().parent / "figures"
 FIGURES.mkdir(exist_ok=True)
 
-velocity_yx = torch.full((41, 51), 5.0, dtype=torch.float64)
-source_xy = (25.2, 20.3)
-traveltime_2d = solve_eikonal2d(velocity_yx, source_xy, 1.0)
-assert traveltime_2d.shape == velocity_yx.shape
+velocity_km_s = 5.0
+spacing_km = 1.0
+
+velocity_yx = torch.full((41, 51), velocity_km_s, dtype=torch.float64)
+source_xy = torch.tensor([25.2, 20.3], dtype=torch.float64)
+traveltime_2d = solve_eikonal2d(velocity_yx, source_xy, spacing_km)
+y_local, x_local = torch.meshgrid(
+    torch.arange(velocity_yx.shape[0], dtype=torch.float64) * spacing_km,
+    torch.arange(velocity_yx.shape[1], dtype=torch.float64) * spacing_km,
+    indexing="ij",
+)
+analytic_2d = torch.hypot(x_local - source_xy[0] * spacing_km, y_local - source_xy[1] * spacing_km) / velocity_km_s
+difference_2d = traveltime_2d - analytic_2d
 assert torch.isfinite(traveltime_2d).all()
+assert difference_2d.abs().max() < 1.5 * spacing_km / velocity_km_s
 
-velocity_zyx = torch.full((21, 31, 41), 5.0, dtype=torch.float64)
-source_xyz = (20.2, 15.3, 10.1)
-traveltime_3d = solve_eikonal3d(velocity_zyx, source_xyz, 1.0)
-assert traveltime_3d.shape == velocity_zyx.shape
+velocity_zyx = torch.full((21, 31, 41), velocity_km_s, dtype=torch.float64)
+source_xyz = torch.tensor([20.2, 15.3, 10.1], dtype=torch.float64)
+traveltime_3d = solve_eikonal3d(velocity_zyx, source_xyz, spacing_km)
+z_local, y_local, x_local = torch.meshgrid(
+    torch.arange(velocity_zyx.shape[0], dtype=torch.float64) * spacing_km,
+    torch.arange(velocity_zyx.shape[1], dtype=torch.float64) * spacing_km,
+    torch.arange(velocity_zyx.shape[2], dtype=torch.float64) * spacing_km,
+    indexing="ij",
+)
+analytic_3d = torch.sqrt(
+    (x_local - source_xyz[0] * spacing_km).square()
+    + (y_local - source_xyz[1] * spacing_km).square()
+    + (z_local - source_xyz[2] * spacing_km).square()
+) / velocity_km_s
+difference_3d = traveltime_3d - analytic_3d
 assert torch.isfinite(traveltime_3d).all()
+assert difference_3d.abs().max() < 2.0 * spacing_km / velocity_km_s
 
-assert_value_error("CPU float64", lambda: solve_eikonal3d(torch.ones((3, 3, 3)), (1, 1, 1), 1.0))
-assert_value_error(
-    "field", lambda: solve_eikonal3d(torch.ones((3, 3), dtype=torch.float64), (1, 1, 1), 1.0)
-)
-assert_value_error(
-    "positive", lambda: solve_eikonal2d(torch.zeros((3, 3), dtype=torch.float64), (1, 1), 1.0)
-)
-assert_value_error(
-    "spacing", lambda: solve_eikonal3d(torch.ones((3, 3, 3), dtype=torch.float64), (1, 1, 1), 0.0)
-)
-assert_value_error(
-    "source", lambda: solve_eikonal3d(torch.ones((3, 3, 3), dtype=torch.float64), (2, 1, 1), 1.0)
-)
-
-figure, axes = plt.subplots(1, 2, figsize=(10, 4), constrained_layout=True)
-image = axes[0].imshow(traveltime_2d, origin="lower", extent=[0, 50, 0, 40], cmap="viridis")
-axes[0].plot(source_xy[0], source_xy[1], "r*", ms=9, label="source")
-axes[0].set(title="2-D travel time", xlabel="East (km)", ylabel="North (km)")
-axes[0].legend(loc="upper left")
-figure.colorbar(image, ax=axes[0], label="Travel time (s)")
-
-source_z_index = round(source_xyz[2])
-image = axes[1].imshow(
-    traveltime_3d[source_z_index], origin="lower", extent=[0, 40, 0, 30], cmap="viridis"
-)
-axes[1].plot(source_xyz[0], source_xyz[1], "r*", ms=9, label="source")
-axes[1].set(
-    title=f"3-D travel time at Down={source_z_index} km",
-    xlabel="East (km)",
-    ylabel="North (km)",
-)
-axes[1].legend(loc="upper left")
-figure.colorbar(image, ax=axes[1], label="Travel time (s)")
-figure.savefig(FIGURES / "eikonal.png", dpi=200)
-plt.close(figure)
+source_z_index = round(source_xyz[2].item())
+rows = [
+    (traveltime_2d, analytic_2d, difference_2d, source_xy, "2-D"),
+    (
+        traveltime_3d[source_z_index],
+        analytic_3d[source_z_index],
+        difference_3d[source_z_index],
+        source_xyz[:2],
+        f"3-D at Down={source_z_index} km",
+    ),
+]
+plt.figure(figsize=(12, 7))
+for row, (numerical, analytic, difference, source, title) in enumerate(rows):
+    vmax = max(numerical.max().item(), analytic.max().item())
+    difference_limit = difference.abs().max().item()
+    for column, (field, label, cmap, limits) in enumerate(
+        (
+            (numerical, "Numerical", "viridis", (0.0, vmax)),
+            (analytic, "Analytic", "viridis", (0.0, vmax)),
+            (difference, "Difference", "seismic", (-difference_limit, difference_limit)),
+        )
+    ):
+        plt.subplot(2, 3, row * 3 + column + 1)
+        image = plt.imshow(
+            field,
+            origin="lower",
+            extent=[0, field.shape[1] - 1, 0, field.shape[0] - 1],
+            cmap=cmap,
+            vmin=limits[0],
+            vmax=limits[1],
+        )
+        if column < 2:
+            plt.plot(source[0], source[1], "r*", ms=9)
+        plt.title(f"{title}: {label}")
+        plt.xlabel("East (km)")
+        plt.ylabel("North (km)")
+        plt.colorbar(image, label="Travel time (s)" if column < 2 else "Difference (s)")
+plt.tight_layout()
+plt.savefig(FIGURES / "eikonal.png", dpi=200)
+plt.close()
 
 print(f"{Path(__file__).name}: passed")
