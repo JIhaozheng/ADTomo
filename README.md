@@ -60,6 +60,8 @@ model:
 J = (1/N) sum_i (predicted_phase_dt_i - observed_phase_dt_i)^2
     + lambda_vp ||grad_sph(Vp - Vp0)||^2
     + lambda_vs ||grad_sph(Vs - Vs0)||^2
+    + lambda_vp_damp ||Vp - Vp0||^2
+    + lambda_vs_damp ||Vs - Vs0||^2
 ```
 
 `Vp0` and `Vs0` are fixed buffers captured when the objective is constructed.
@@ -67,8 +69,12 @@ With r = R_Earth - depth, the mean squared gradient uses
 `(dm/dd)^2 + (dm/dphi / r)^2 + (dm/dlambda / (r cos(phi)))^2`.
 Thus depth differences use km directly; latitude uses r dphi and longitude
 uses r cos(phi) dlambda. Both weights default to zero, preserving the
-unregularized inversion. Set `ADTOMO_LAMBDA_VP` and `ADTOMO_LAMBDA_VS` when
-running the synthetic inversion to compare a regularized case.
+uses r cos(phi) dlambda. All weights default to zero, preserving the
+unregularized inversion. Smoothness controls perturbation roughness; damping
+controls perturbation magnitude relative to the initial model. Set
+`ADTOMO_LAMBDA_VP`, `ADTOMO_LAMBDA_VS`, `ADTOMO_LAMBDA_VP_DAMP`, and
+`ADTOMO_LAMBDA_VS_DAMP` when running the synthetic inversion to compare a
+regularized case.
 
 ## Install
 

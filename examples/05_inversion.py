@@ -13,6 +13,8 @@ DATA = Path("data")
 RESULTS = Path("results")
 LAMBDA_VP = float(os.environ.get("ADTOMO_LAMBDA_VP", "0.0"))
 LAMBDA_VS = float(os.environ.get("ADTOMO_LAMBDA_VS", "0.0"))
+LAMBDA_VP_DAMP = float(os.environ.get("ADTOMO_LAMBDA_VP_DAMP", "0.0"))
+LAMBDA_VS_DAMP = float(os.environ.get("ADTOMO_LAMBDA_VS_DAMP", "0.0"))
 
 
 def prepare_pick_groups(stations, events, picks, model):
@@ -73,7 +75,7 @@ def plot_progress(true, initial, model, data_loss_history, total_loss_history, p
     axis.semilogy(total_loss_history, "o-", color="tab:orange", label="Total objective")
     axis.set_title("Arrival-time inversion")
     axis.set_xlabel("Adam iteration")
-    axis.set_ylabel("objective (s²)")
+    axis.set_ylabel("Objective value")
     axis.grid(alpha=0.3)
     axis.legend()
     figure.suptitle(f"Two-grid spherical inversion progress at depth {depth_km:.1f} km")
@@ -89,7 +91,13 @@ events = pd.read_csv(DATA / "events.csv", dtype={"event_id": str})
 picks = pd.read_csv(DATA / "picks.csv", dtype={"event_id": str, "station_id": str})
 groups = prepare_pick_groups(stations, events, picks, model)
 
-tomography = Tomography(model, lambda_vp=LAMBDA_VP, lambda_vs=LAMBDA_VS)
+tomography = Tomography(
+    model,
+    lambda_vp=LAMBDA_VP,
+    lambda_vs=LAMBDA_VS,
+    lambda_vp_damp=LAMBDA_VP_DAMP,
+    lambda_vs_damp=LAMBDA_VS_DAMP,
+)
 optimizer = torch.optim.Adam([p for p in tomography.parameters() if p.requires_grad], lr=0.03)
 data_loss_history = []
 total_loss_history = []
@@ -106,7 +114,8 @@ for iteration in range(31):
     if iteration % 5 == 0 or iteration == 30:
         print(
             f"iteration {iteration:02d} total={loss.item():.6f} data={tomography.data_loss.item():.6f} "
-            f"reg_vp={tomography.reg_vp.item():.6f} reg_vs={tomography.reg_vs.item():.6f}"
+            f"smooth_vp={tomography.reg_vp.item():.6f} smooth_vs={tomography.reg_vs.item():.6f} "
+            f"damp_vp={tomography.damp_vp.item():.6f} damp_vs={tomography.damp_vs.item():.6f}"
         )
 
 RESULTS.mkdir(exist_ok=True)

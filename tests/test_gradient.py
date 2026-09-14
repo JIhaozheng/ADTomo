@@ -82,6 +82,8 @@ direct_residual = torch.cat(
     ]
 )
 assert torch.allclose(data_only_loss, direct_residual.square().mean())
+assert data_only.damp_vp.item() == 0.0
+assert data_only.damp_vs.item() == 0.0
 assert smoothness(
     torch.full_like(objective_model.vp, 0.2), objective_model.lon, objective_model.lat, objective_model.depth
 ).item() == 0.0
@@ -99,16 +101,35 @@ fine_smoothness = smoothness(field_fine, lon_small, lat_small, depth_fine)
 assert torch.allclose(coarse_smoothness, torch.tensor(depth_gradient**2, dtype=torch.float64))
 assert torch.allclose(fine_smoothness, coarse_smoothness)
 
-regularized = Tomography(objective_model, lambda_vp=0.5, lambda_vs=0.25)
+constant_model = VelocityModel(lon, lat, depth, vp, vp / 1.73, trainable=True)
+constant_tomography = Tomography(constant_model, lambda_vp_damp=0.5, lambda_vs_damp=0.25)
+with torch.no_grad():
+    constant_model.vp += 0.2
+    constant_model.vs -= 0.1
+constant_tomography(station_groups)
+assert constant_tomography.reg_vp.item() == 0.0
+assert constant_tomography.reg_vs.item() == 0.0
+assert constant_tomography.damp_vp.item() > 0.0
+assert constant_tomography.damp_vs.item() > 0.0
+
+regularized = Tomography(
+    objective_model, lambda_vp=0.5, lambda_vs=0.25, lambda_vp_damp=0.125, lambda_vs_damp=0.0625
+)
 with torch.no_grad():
     objective_model.vp[2, 3, 4] += 0.2
     objective_model.vs[2, 3, 4] -= 0.1
 regularized_loss = regularized(station_groups)
 assert regularized.reg_vp.item() > 0.0
 assert regularized.reg_vs.item() > 0.0
+assert regularized.damp_vp.item() > 0.0
+assert regularized.damp_vs.item() > 0.0
 assert torch.allclose(
     regularized_loss,
-    regularized.data_loss + 0.5 * regularized.reg_vp + 0.25 * regularized.reg_vs,
+    regularized.data_loss
+    + 0.5 * regularized.reg_vp
+    + 0.25 * regularized.reg_vs
+    + 0.125 * regularized.damp_vp
+    + 0.0625 * regularized.damp_vs,
 )
 regularized_loss.backward()
 assert torch.isfinite(objective_model.vp.grad).all() and objective_model.vp.grad.abs().sum() > 0
