@@ -24,6 +24,15 @@ order. The Python wrappers hide that detail and expose local arrays in
 `(z_local, y_local, x_local)` order. This convention never applies to the
 global spherical model.
 
+## Workflow assumptions
+
+ADTomo is controlled research code. Provide regular increasing longitude,
+latitude, and depth axes; positive Vp/Vs; unique station/event IDs; and picks
+that reference those catalogs. Stations and events must lie inside the global
+model domain. The retained eikonal kernels require CPU `torch.float64`,
+positive isotropic spacing, positive velocity, and a source inside the local
+forward grid.
+
 ## Catalog times
 
 The catalog preserves ISO origin and phase timestamps. Every pick is converted
@@ -33,15 +42,13 @@ to its event-relative observed time:
 phase_dt = phase_time - catalog_event_time
 ```
 
-The modeled time is:
+With fixed catalog origin times, the modeled time is:
 
 ```text
-predicted_phase_dt = event_dt + travel_time
+predicted_phase_dt = travel_time
 ```
 
-`event_dt` has one value per catalog event, not per pick. For velocity
-inversion it is fixed to zero. A future joint inversion can make it trainable;
-then `new_event_time = catalog_event_time + event_dt`.
+Event-origin corrections belong to a future joint event/velocity inversion.
 
 ## Install
 
@@ -93,7 +100,7 @@ The complete forward path stays visible:
 
 ```python
 grid = ForwardGrid(station_lonlatdepth, event_lonlatdepth, model, spacing=5.0)
-predicted_phase_dt = predict_phase_times(model, grid, "P", event_dt)
+predicted_phase_dt = predict_travel_times(model, grid, "P")
 loss = ((predicted_phase_dt - observed_phase_dt) ** 2).mean()
 loss.backward()
 ```

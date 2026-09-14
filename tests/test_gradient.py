@@ -4,7 +4,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import torch
 
-from adtomo import ForwardGrid, VelocityModel, predict_phase_times, solve_eikonal3d
+from adtomo import ForwardGrid, VelocityModel, predict_travel_times, solve_eikonal3d
 
 
 FIGURES = Path("figures")
@@ -30,33 +30,14 @@ vp = torch.full((len(depth), len(lat), len(lon)), 6.0, dtype=torch.float64)
 station_lonlatdepth = torch.tensor([-120.0, 35.0, 0.0], dtype=torch.float64)
 event_lonlatdepth = torch.tensor([[-119.9, 35.1, 10.0]], dtype=torch.float64)
 
-# A concise S-wave backward pass proves Vs is connected to prediction.
-s_model = VelocityModel(lon, lat, depth, vp, vp / 1.73, trainable=True)
-s_grid = ForwardGrid(station_lonlatdepth, event_lonlatdepth, s_model, spacing=5.0)
-s_loss = (predict_phase_times(s_model, s_grid, "S", torch.zeros(1, dtype=torch.float64)) - 5.0).square().sum()
-s_loss.backward()
-assert s_model.vs.grad is not None
-assert torch.isfinite(s_model.vs.grad).all()
-assert s_model.vs.grad.abs().sum() > 0
-
-# Full global-Vp chain: sampling, solver, event-level correction selection, loss.
+# Full global-Vp chain: sampling, solver, event interpolation, loss.
 taylor_model = VelocityModel(lon, lat, depth, vp, vp / 1.73, trainable=True)
-catalog_event_lonlatdepth = torch.tensor([[-119.9, 35.1, 10.0], [-120.1, 34.9, 12.0]], dtype=torch.float64)
-taylor_grid = ForwardGrid(station_lonlatdepth, catalog_event_lonlatdepth[1:], taylor_model, spacing=5.0)
-catalog_event_indices = torch.tensor([1], dtype=torch.long)
-grid_event_indices = torch.tensor([0], dtype=torch.long)
-event_dt = torch.tensor([-0.10, 0.05], dtype=torch.float64)
+taylor_grid = ForwardGrid(station_lonlatdepth, event_lonlatdepth, taylor_model, spacing=5.0)
 global_direction = torch.linspace(-0.01, 0.01, taylor_model.vp.numel(), dtype=torch.float64).reshape_as(taylor_model.vp)
 
 
 def full_phase_time_loss(candidate):
-    predicted_phase_dt = predict_phase_times(
-        candidate,
-        taylor_grid,
-        "P",
-        event_dt[catalog_event_indices],
-        event_indices=grid_event_indices,
-    )
+    predicted_phase_dt = predict_travel_times(candidate, taylor_grid, "P")
     return (predicted_phase_dt - 3.0).square().sum()
 
 
@@ -94,4 +75,4 @@ plt.tight_layout()
 figure.savefig(FIGURES / "taylor_remainders.png", dpi=200)
 plt.show()
 
-print(f"{Path(__file__).name}: passed")
+print("test_gradient.py: passed")

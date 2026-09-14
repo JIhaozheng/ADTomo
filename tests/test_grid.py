@@ -71,4 +71,4 @@ plt.tight_layout()
 figure.savefig(FIGURES / "grid_interpolation.png", dpi=200)
 plt.show()
 
-print(f"{Path(__file__).name}: passed")
+print("test_grid.py: passed")

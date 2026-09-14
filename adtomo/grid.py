@@ -19,41 +19,31 @@ class ForwardGrid:
 
     def __init__(self, station_lonlatdepth, event_lonlatdepth, model, spacing):
         self.spacing = float(spacing)
-        if not math.isfinite(self.spacing) or self.spacing <= 0:
-            raise ValueError("spacing must be one positive isotropic scalar in km")
-
         ref = model.vp
-        self.model_shape = tuple(model.vp.shape)
-        self.station_lonlatdepth = torch.as_tensor(
-            station_lonlatdepth, dtype=ref.dtype, device=ref.device
-        ).reshape(3)
-        self.event_lonlatdepth = torch.as_tensor(
-            event_lonlatdepth, dtype=ref.dtype, device=ref.device
-        ).reshape(-1, 3)
-
-        self.station_ecef = spherical_to_ecef(*self.station_lonlatdepth)
-        self.basis = local_basis(self.station_lonlatdepth[0], self.station_lonlatdepth[1])
+        station_lonlatdepth = torch.as_tensor(station_lonlatdepth, dtype=ref.dtype, device=ref.device).reshape(3)
+        event_lonlatdepth = torch.as_tensor(event_lonlatdepth, dtype=ref.dtype, device=ref.device).reshape(-1, 3)
+        station_ecef = spherical_to_ecef(*station_lonlatdepth)
+        basis = local_basis(station_lonlatdepth[0], station_lonlatdepth[1])
         event_ecef = spherical_to_ecef(
-            self.event_lonlatdepth[:, 0], self.event_lonlatdepth[:, 1], self.event_lonlatdepth[:, 2]
+            event_lonlatdepth[:, 0], event_lonlatdepth[:, 1], event_lonlatdepth[:, 2]
         )
-        self.station_local = torch.zeros(3, dtype=ref.dtype, device=ref.device)
-        self.event_local = ecef_to_local(event_ecef, self.station_ecef, self.basis)
+        station_local = torch.zeros(3, dtype=ref.dtype, device=ref.device)
+        event_local = ecef_to_local(event_ecef, station_ecef, basis)
 
-        points = torch.cat([self.station_local[None], self.event_local], dim=0)
+        points = torch.cat([station_local[None], event_local], dim=0)
         low = points.amin(dim=0) - 2.0 * self.spacing
         high = points.amax(dim=0) + 2.0 * self.spacing
         nxyz = tuple(max(2, math.ceil(float((high[i] - low[i]) / self.spacing)) + 1) for i in range(3))
-        self.origin = low
         self.x = low[0] + torch.arange(nxyz[0], dtype=ref.dtype, device=ref.device) * self.spacing
         self.y = low[1] + torch.arange(nxyz[1], dtype=ref.dtype, device=ref.device) * self.spacing
         self.z = low[2] + torch.arange(nxyz[2], dtype=ref.dtype, device=ref.device) * self.spacing
         self.shape = (len(self.z), len(self.y), len(self.x))
-        self.station_index = self._index(self.station_local)
-        self.event_index = self._index(self.event_local)
+        self.station_index = (station_local - low) / self.spacing
+        self.event_index = (event_local - low) / self.spacing
 
         z_local, y_local, x_local = torch.meshgrid(self.z, self.y, self.x, indexing="ij")
         xyz_local = torch.stack([x_local, y_local, z_local], dim=-1)
-        ecef = local_to_ecef(xyz_local, self.station_ecef, self.basis)
+        ecef = local_to_ecef(xyz_local, station_ecef, basis)
         lon, lat, depth = ecef_to_spherical(ecef)
         self._check_model_coverage(model, lon, lat, depth)
         self.sample_grid = torch.stack(
@@ -74,44 +64,17 @@ class ForwardGrid:
                     f"but model provides [{axis[0].item():.4f}, {axis[-1].item():.4f}]"
                 )
 
-    def _index(self, local):
-        return (local - self.origin) / self.spacing
-
-    def _check_live_event_index(self, index):
-        upper = torch.tensor([len(self.x) - 1, len(self.y) - 1, len(self.z) - 1], dtype=index.dtype, device=index.device)
-        if not (torch.all(index >= 0) and torch.all(index <= upper)):
-            raise ValueError("live event lies outside the forward grid")
-
     def sample(self, field):
         """Differentiably sample a global ``(depth, latitude, longitude)`` field."""
-        if tuple(field.shape) != self.model_shape:
-            raise ValueError(f"global field shape {tuple(field.shape)} != model shape {self.model_shape}")
         return F.grid_sample(
             field[None, None], self.sample_grid, mode="bilinear", padding_mode="border", align_corners=True
         )[0, 0]
 
-    def _live_event_index(self, event_lonlatdepth):
-        event_lonlatdepth = torch.as_tensor(
-            event_lonlatdepth,
-            dtype=self.station_lonlatdepth.dtype,
-            device=self.station_lonlatdepth.device,
-        ).reshape(-1, 3)
-        ecef = spherical_to_ecef(
-            event_lonlatdepth[:, 0], event_lonlatdepth[:, 1], event_lonlatdepth[:, 2]
-        )
-        index = self._index(ecef_to_local(ecef, self.station_ecef, self.basis))
-        self._check_live_event_index(index)
-        return index
-
-    def sample_events(self, traveltime, event_indices=None, events=None):
+    def sample_events(self, traveltime, event_indices=None):
         """Sample a local ``(z_local, y_local, x_local)`` field at events."""
-        if tuple(traveltime.shape) != self.shape:
-            raise ValueError(f"traveltime shape {tuple(traveltime.shape)} != grid shape {self.shape}")
-        if events is not None and event_indices is not None:
-            raise ValueError("pass event_indices or events, not both")
-        index = self._live_event_index(events) if events is not None else self.event_index
+        index = self.event_index
         if event_indices is not None:
-            index = index[torch.as_tensor(event_indices, dtype=torch.long, device=index.device)]
+            index = index[event_indices]
         nx, ny, nz = len(self.x), len(self.y), len(self.z)
         query = torch.stack(
             [2.0 * index[:, 0] / (nx - 1) - 1.0, 2.0 * index[:, 1] / (ny - 1) - 1.0, 2.0 * index[:, 2] / (nz - 1) - 1.0],

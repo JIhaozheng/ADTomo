@@ -84,4 +84,4 @@ plt.tight_layout()
 figure.savefig(FIGURES / "eikonal.png", dpi=200)
 plt.show()
 
-print(f"{Path(__file__).name}: passed")
+print("test_eikonal.py: passed")

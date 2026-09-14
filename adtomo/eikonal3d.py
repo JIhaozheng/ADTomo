@@ -1,7 +1,5 @@
 """Autograd wrapper for the retained three-dimensional CPU eikonal kernel."""
 
-import math
-
 import torch
 
 import eikonal3d_op
@@ -32,25 +30,7 @@ def solve_eikonal3d(velocity_zyx, source_xyz, spacing):
     East)``. The retained kernel uses physical ``(x_local, y_local, z_local)``
     = ``(East, North, Down)``; that implementation detail is isolated here.
     """
-    if velocity_zyx.device.type != "cpu" or velocity_zyx.dtype != torch.float64:
-        raise ValueError("velocity must be CPU float64")
-    if velocity_zyx.ndim != 3 or min(velocity_zyx.shape) < 2:
-        raise ValueError("velocity must be a (z_local, y_local, x_local) field with at least two nodes per axis")
-    if not torch.isfinite(velocity_zyx).all() or torch.any(velocity_zyx <= 0):
-        raise ValueError("velocity must be finite and positive")
-    spacing = float(spacing)
-    if not math.isfinite(spacing) or spacing <= 0:
-        raise ValueError("spacing must be finite and positive")
     source_xyz = torch.as_tensor(source_xyz, dtype=velocity_zyx.dtype, device=velocity_zyx.device)
-    nx, ny, nz = velocity_zyx.shape[2], velocity_zyx.shape[1], velocity_zyx.shape[0]
-    upper = torch.tensor([nx - 1, ny - 1, nz - 1], dtype=velocity_zyx.dtype)
-    if (
-        source_xyz.shape != (3,)
-        or not torch.isfinite(source_xyz).all()
-        or not torch.all(source_xyz >= 0)
-        or not torch.all(source_xyz < upper)
-    ):
-        raise ValueError("source must be finite (x_local, y_local, z_local) indices inside the forward grid")
     slowness_xyz = (1.0 / velocity_zyx).permute(2, 1, 0).contiguous()
-    tt_xyz = _Eikonal3DFunction.apply(slowness_xyz, spacing, *source_xyz.tolist())
+    tt_xyz = _Eikonal3DFunction.apply(slowness_xyz, float(spacing), *source_xyz.tolist())
     return tt_xyz.permute(2, 1, 0)

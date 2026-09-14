@@ -6,15 +6,15 @@ import pandas as pd
 import torch
 import matplotlib.pyplot as plt
 
-from adtomo import ForwardGrid, VelocityModel, predict_phase_times
+from adtomo import ForwardGrid, VelocityModel, predict_travel_times
 
 DATA = Path("data")
 RESULTS = Path("results")
 
 
 def prepare_pick_groups(stations, events, picks, model):
-    events_by_id = events.set_index("event_id", verify_integrity=True)
-    stations_by_id = stations.set_index("station_id", verify_integrity=True)
+    events_by_id = events.set_index("event_id")
+    stations_by_id = stations.set_index("station_id")
 
     groups = []
     for station_id, station_picks in picks.groupby("station_id", sort=False):
@@ -28,7 +28,6 @@ def prepare_pick_groups(stations, events, picks, model):
         grid = ForwardGrid(station_lonlatdepth, event_lonlatdepth, model, spacing=5.0)
 
         for phase, phase_picks in station_picks.groupby("phase_type", sort=False):
-            catalog_event_indices = torch.tensor(events_by_id.index.get_indexer(phase_picks.event_id), dtype=torch.long)
             grid_event_indices = torch.tensor(pd.Index(station_event_ids).get_indexer(phase_picks.event_id), dtype=torch.long)
             catalog_event_time = pd.to_datetime(phase_picks.event_id.map(events_by_id.event_time))
             phase_dt = torch.tensor(
@@ -39,7 +38,6 @@ def prepare_pick_groups(stations, events, picks, model):
                 {
                     "grid": grid,
                     "phase": phase,
-                    "catalog_event_indices": catalog_event_indices,
                     "grid_event_indices": grid_event_indices,
                     "observed_phase_dt": phase_dt,
                 }
@@ -90,7 +88,6 @@ stations = pd.read_csv(DATA / "stations.csv", dtype={"station_id": str})
 events = pd.read_csv(DATA / "events.csv", dtype={"event_id": str})
 picks = pd.read_csv(DATA / "picks.csv", dtype={"event_id": str, "station_id": str})
 groups = prepare_pick_groups(stations, events, picks, model)
-event_dt = torch.zeros(len(events), dtype=torch.float64)
 
 optimizer = torch.optim.Adam([model.vp, model.vs], lr=0.03)
 loss_history = []
@@ -98,12 +95,10 @@ for iteration in range(31):
     optimizer.zero_grad()
     residuals = []
     for group in groups:
-        pick_event_dt = event_dt[group["catalog_event_indices"]]
-        predicted_phase_dt = predict_phase_times(
+        predicted_phase_dt = predict_travel_times(
             model,
             group["grid"],
             group["phase"],
-            pick_event_dt,
             event_indices=group["grid_event_indices"],
         )
         residuals.append(predicted_phase_dt - group["observed_phase_dt"])
@@ -114,9 +109,6 @@ for iteration in range(31):
     if iteration < 30:
         loss.backward()
         optimizer.step()
-        with torch.no_grad():
-            model.vp.clamp_(min=1.0)
-            model.vs.clamp_(min=1.0)
     if iteration % 5 == 0 or iteration == 30:
         print(f"iteration {iteration:02d} phase-time MSE {loss.item():.6f}")
 
