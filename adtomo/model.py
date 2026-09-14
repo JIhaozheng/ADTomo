@@ -24,7 +24,7 @@ class VelocityModel(nn.Module):
         vp = torch.as_tensor(vp)
         vs = torch.as_tensor(vs, dtype=vp.dtype, device=vp.device)
         if vp.ndim != 3 or tuple(vp.shape) != tuple(vs.shape):
-            raise ValueError("vp and vs must have matching three-dimensional (z, y, x) shapes")
+            raise ValueError("vp and vs must have matching (depth, latitude, longitude) shapes")
         if not torch.isfinite(vp).all() or not torch.isfinite(vs).all() or torch.any(vp <= 0) or torch.any(vs <= 0):
             raise ValueError("vp and vs must be finite and positive")
         lon = _axis("lon", lon, vp)

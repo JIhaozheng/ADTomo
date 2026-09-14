@@ -9,7 +9,7 @@ def _check(velocity, source, spacing):
     if velocity.device.type != "cpu" or velocity.dtype != torch.float64:
         raise ValueError("the retained eikonal kernels require CPU torch.float64 tensors")
     if velocity.ndim != 3 or min(velocity.shape) < 2:
-        raise ValueError("velocity must have shape (z, y, x) with at least two nodes per axis")
+        raise ValueError("local velocity must have shape (z_local, y_local, x_local) with at least two nodes per axis")
     if not torch.isfinite(velocity).all() or torch.any(velocity <= 0):
         raise ValueError("velocity must be finite and positive")
     if not isinstance(spacing, (float, int)) or spacing <= 0:
@@ -45,8 +45,9 @@ class _Eikonal3DFunction(torch.autograd.Function):
 def solve_eikonal3d(velocity_zyx, source_xyz, spacing):
     """Solve the local 3-D eikonal equation for velocity in km/s.
 
-    Python arrays use ``(z, y, x)``.  The retained kernel uses ``(x, y, z)``;
-    that implementation detail is isolated here.
+    Python local fields use ``(z_local, y_local, x_local)`` = ``(Down, North,
+    East)``. The retained kernel uses physical ``(x_local, y_local, z_local)``
+    = ``(East, North, Down)``; that implementation detail is isolated here.
     """
     source = _check(velocity_zyx, source_xyz, spacing)
     slowness_xyz = (1.0 / velocity_zyx).permute(2, 1, 0).contiguous()

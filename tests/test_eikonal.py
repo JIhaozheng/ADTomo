@@ -3,10 +3,18 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-import pytest
 import torch
 
 from adtomo import solve_eikonal2d, solve_eikonal3d
+
+
+def assert_value_error(message, function):
+    try:
+        function()
+    except ValueError as error:
+        assert message in str(error)
+    else:
+        raise AssertionError("expected ValueError")
 
 
 def test_small_2d_and_3d_solves():
@@ -18,13 +26,20 @@ def test_small_2d_and_3d_solves():
 
 
 def test_solver_rejects_bad_inputs():
-    with pytest.raises(ValueError, match="float64"):
-        solve_eikonal3d(torch.ones((3, 3, 3)), (1, 1, 1), 1.0)
-    with pytest.raises(ValueError, match="positive"):
-        solve_eikonal2d(torch.zeros((3, 3), dtype=torch.float64), (1, 1), 1.0)
-    with pytest.raises(ValueError, match="inside"):
-        solve_eikonal3d(torch.ones((3, 3, 3), dtype=torch.float64), (2, 1, 1), 1.0)
+    assert_value_error("float64", lambda: solve_eikonal3d(torch.ones((3, 3, 3)), (1, 1, 1), 1.0))
+    assert_value_error(
+        "positive", lambda: solve_eikonal2d(torch.zeros((3, 3), dtype=torch.float64), (1, 1), 1.0)
+    )
+    assert_value_error(
+        "inside", lambda: solve_eikonal3d(torch.ones((3, 3, 3), dtype=torch.float64), (2, 1, 1), 1.0)
+    )
+
+
+def main():
+    test_small_2d_and_3d_solves()
+    test_solver_rejects_bad_inputs()
+    print(f"{Path(__file__).name}: passed")
 
 
 if __name__ == "__main__":
-    raise SystemExit(pytest.main([__file__]))
+    main()

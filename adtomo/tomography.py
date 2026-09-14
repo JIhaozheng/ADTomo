@@ -14,6 +14,6 @@ def predict_travel_times(model, grid, phase, event_indices=None, events=None):
 
 
 def predict_phase_times(model, grid, phase, event_dt, event_indices=None, events=None):
-    """Predict per-event phase time: catalog-origin correction plus travel time."""
+    """Predict phase time: selected catalog-event correction plus travel time."""
     travel_time = predict_travel_times(model, grid, phase, event_indices=event_indices, events=events)
     return event_dt.reshape(-1) + travel_time

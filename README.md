@@ -14,12 +14,15 @@ global model with PyTorch interpolation.
 
 - longitude: degrees east; latitude: degrees north; depth: km positive down
 - velocity: km/s; time: seconds; Earth radius: 6371 km
-- Python fields: `(z, y, x)`; physical coordinates: `(x, y, z)`
-- local axes: East, North, Down
+- global model tensor order: `(depth, latitude, longitude)`
+- local forward-field tensor order: `(z_local, y_local, x_local)` = `(Down, North, East)`
+- local physical-coordinate order: `(x_local, y_local, z_local)` = `(East, North, Down)`
 - retained C++ kernels: CPU-only, `torch.float64`, and one isotropic spacing
 
-The C++ kernels store fields in `(x, y, z)`. The Python wrappers hide that
-detail, so all public fields use `(z, y, x)`.
+The C++ kernels store local fields in physical `(x_local, y_local, z_local)`
+order. The Python wrappers hide that detail and expose local arrays in
+`(z_local, y_local, x_local)` order. This convention never applies to the
+global spherical model.
 
 ## Catalog times
 
@@ -36,8 +39,9 @@ The modeled time is:
 predicted_phase_dt = event_dt + travel_time
 ```
 
-For velocity inversion, `event_dt` is fixed to zero. A future joint inversion
-can make it trainable; then `new_event_time = catalog_event_time + event_dt`.
+`event_dt` has one value per catalog event, not per pick. For velocity
+inversion it is fixed to zero. A future joint inversion can make it trainable;
+then `new_event_time = catalog_event_time + event_dt`.
 
 ## Install
 
@@ -46,7 +50,6 @@ cd /path/to/ADTomo_hz
 pip install -r requirement.txt
 python setup.py build_ext --inplace
 pip install -e . --no-build-isolation
-python -m pytest -q
 ```
 
 The first build downloads Eigen and compiles only `eikonal2d_op` and
@@ -63,8 +66,8 @@ python test_grid.py
 python test_gradient.py
 ```
 
-Each test file is directly executable; it invokes its own pytest collection.
-`tests/conftest.py` adds the adjacent source checkout to Python's import path.
+Each test file is directly executable and adds the adjacent source checkout to
+Python's import path.
 
 ## Synthetic workflow
 
@@ -83,8 +86,8 @@ model and `inversion_progress.png` to `examples/results/`.
 The complete forward path stays visible:
 
 ```python
-grid = ForwardGrid(station, events, model, spacing=5.0)
-phase_time = predict_phase_times(model, grid, "P", event_dt)
-loss = ((phase_time - observed_phase_dt) ** 2).mean()
+grid = ForwardGrid(station_lonlatdepth, event_lonlatdepth, model, spacing=5.0)
+predicted_phase_dt = predict_phase_times(model, grid, "P", event_dt)
+loss = ((predicted_phase_dt - observed_phase_dt) ** 2).mean()
 loss.backward()
 ```

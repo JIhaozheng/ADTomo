@@ -16,6 +16,63 @@ DATA = Path(__file__).resolve().parent / "data"
 RESULTS = Path(__file__).resolve().parent / "results"
 
 
+def require_unique_ids(table, column, label):
+    if table[column].duplicated().any():
+        raise ValueError(f"{label} {column} values must be unique")
+
+
+def prepare_pick_groups(stations, events, picks, model):
+    require_unique_ids(stations, "station_id", "station catalog")
+    require_unique_ids(events, "event_id", "event catalog")
+    events_by_id = events.set_index("event_id", verify_integrity=True)
+    catalog_event_index = {event_id: index for index, event_id in enumerate(events.event_id)}
+    unknown_event_ids = sorted(set(picks.event_id) - set(events_by_id.index))
+    if unknown_event_ids:
+        raise ValueError(f"picks reference unknown event_id values: {unknown_event_ids}")
+    unknown_station_ids = sorted(set(picks.station_id) - set(stations.station_id))
+    if unknown_station_ids:
+        raise ValueError(f"picks reference unknown station_id values: {unknown_station_ids}")
+
+    groups = []
+    for station in stations.itertuples(index=False):
+        station_picks = picks[picks.station_id == station.station_id]
+        if station_picks.empty:
+            continue
+        station_event_ids = list(pd.unique(station_picks.event_id))
+        station_events = events_by_id.loc[station_event_ids].reset_index()
+        station_lonlatdepth = torch.tensor(
+            [station.longitude, station.latitude, station.depth_km], dtype=torch.float64
+        )
+        event_lonlatdepth = torch.tensor(
+            station_events[["longitude", "latitude", "depth_km"]].values, dtype=torch.float64
+        )
+        grid = ForwardGrid(station_lonlatdepth, event_lonlatdepth, model, spacing=5.0)
+        grid_event_index = {event_id: index for index, event_id in enumerate(station_event_ids)}
+
+        for phase, phase_picks in station_picks.groupby("phase_type", sort=False):
+            catalog_event_indices = torch.tensor(
+                [catalog_event_index[event_id] for event_id in phase_picks.event_id], dtype=torch.long
+            )
+            grid_event_indices = torch.tensor(
+                [grid_event_index[event_id] for event_id in phase_picks.event_id], dtype=torch.long
+            )
+            catalog_event_time = pd.to_datetime(phase_picks.event_id.map(events_by_id.event_time))
+            phase_dt = torch.tensor(
+                (pd.to_datetime(phase_picks.phase_time) - catalog_event_time).dt.total_seconds().to_numpy(),
+                dtype=torch.float64,
+            )
+            groups.append(
+                {
+                    "grid": grid,
+                    "phase": phase,
+                    "catalog_event_indices": catalog_event_indices,
+                    "grid_event_indices": grid_event_indices,
+                    "observed_phase_dt": phase_dt,
+                }
+            )
+    return groups
+
+
 def main():
     initial = torch.load(DATA / "model_initial.pt", weights_only=True)
     true = torch.load(DATA / "model_true.pt", weights_only=True)
@@ -23,35 +80,24 @@ def main():
     stations = pd.read_csv(DATA / "stations.csv", dtype={"station_id": str})
     events = pd.read_csv(DATA / "events.csv", dtype={"event_id": str})
     picks = pd.read_csv(DATA / "picks.csv", dtype={"event_id": str, "station_id": str})
-    event_xyz = torch.tensor(events[["longitude", "latitude", "depth_km"]].values, dtype=torch.float64)
-    event_number = {event_id: i for i, event_id in enumerate(events.event_id)}
-    event_time = pd.Series(pd.to_datetime(events.event_time).values, index=events.event_id)
-    grids = {}
-    for station in stations.itertuples(index=False):
-        grids[station.station_id] = ForwardGrid(
-            torch.tensor([station.longitude, station.latitude, station.depth_km], dtype=torch.float64),
-            event_xyz,
-            model,
-            spacing=5.0,
-        )
-
-    groups = []
-    for (station_id, phase), rows in picks.groupby(["station_id", "phase_type"], sort=False):
-        event_indices = torch.tensor([event_number[event_id] for event_id in rows.event_id], dtype=torch.long)
-        catalog_time = pd.to_datetime(rows.event_id.map(event_time))
-        phase_dt = (pd.to_datetime(rows.phase_time) - catalog_time).dt.total_seconds().to_numpy()
-        groups.append((grids[station_id], phase, event_indices, torch.tensor(phase_dt, dtype=torch.float64)))
+    groups = prepare_pick_groups(stations, events, picks, model)
+    event_dt = torch.zeros(len(events), dtype=torch.float64)
 
     optimizer = torch.optim.Adam([model.vp, model.vs], lr=0.03)
     loss_history = []
     for iteration in range(31):
         optimizer.zero_grad()
         residuals = []
-        for grid, phase, event_indices, observed in groups:
-            predicted = predict_phase_times(
-                model, grid, phase, torch.zeros(len(event_indices), dtype=torch.float64), event_indices=event_indices
+        for group in groups:
+            pick_event_dt = event_dt[group["catalog_event_indices"]]
+            predicted_phase_dt = predict_phase_times(
+                model,
+                group["grid"],
+                group["phase"],
+                pick_event_dt,
+                event_indices=group["grid_event_indices"],
             )
-            residuals.append(predicted - observed)
+            residuals.append(predicted_phase_dt - group["observed_phase_dt"])
         loss = torch.cat(residuals).square().mean()
         loss_history.append(loss.item())
         if iteration == 0:
@@ -94,7 +140,7 @@ def plot_progress(true, initial, model, loss_history, path):
         vmax = max(field.max().item() for field in phase_fields)
         for column, (title, field) in enumerate((item for item in fields if item[0].startswith(phase))):
             axis = figure.add_subplot(layout[row, column])
-            image = axis.imshow(field.T, origin="lower", extent=extent, cmap="viridis", vmin=vmin, vmax=vmax)
+            image = axis.imshow(field, origin="lower", extent=extent, cmap="viridis", vmin=vmin, vmax=vmax)
             axis.set_title(title)
             axis.set_xlabel("longitude (deg)")
             axis.set_ylabel("latitude (deg)")

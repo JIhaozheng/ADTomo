@@ -11,8 +11,10 @@ from .coordinate import ecef_to_local, ecef_to_spherical, local_basis, local_to_
 class ForwardGrid:
     """A fixed East/North/Down forward grid for one station.
 
-    Model fields and returned travel-time fields use tensor order ``(z, y, x)``.
-    Fractional locations use physical coordinate order ``(x, y, z)``.
+    Global model fields use ``(depth, latitude, longitude)`` tensor order.
+    Local forward and travel-time fields use ``(z_local, y_local, x_local)``
+    = ``(Down, North, East)``. Fractional local locations use physical order
+    ``(x_local, y_local, z_local)`` = ``(East, North, Down)``.
     """
 
     def __init__(self, station_lonlatdepth, event_lonlatdepth, model, spacing, padding=None):
@@ -27,14 +29,24 @@ class ForwardGrid:
 
         ref = model.vp
         self.model_shape = tuple(model.vp.shape)
-        self.station = torch.as_tensor(station_lonlatdepth, dtype=ref.dtype, device=ref.device).reshape(3)
-        self.events = torch.as_tensor(event_lonlatdepth, dtype=ref.dtype, device=ref.device).reshape(-1, 3)
-        if len(self.events) == 0 or not torch.isfinite(self.station).all() or not torch.isfinite(self.events).all():
+        self.station_lonlatdepth = torch.as_tensor(
+            station_lonlatdepth, dtype=ref.dtype, device=ref.device
+        ).reshape(3)
+        self.event_lonlatdepth = torch.as_tensor(
+            event_lonlatdepth, dtype=ref.dtype, device=ref.device
+        ).reshape(-1, 3)
+        if (
+            len(self.event_lonlatdepth) == 0
+            or not torch.isfinite(self.station_lonlatdepth).all()
+            or not torch.isfinite(self.event_lonlatdepth).all()
+        ):
             raise ValueError("station and at least one finite event are required")
 
-        self.station_ecef = spherical_to_ecef(*self.station)
-        self.basis = local_basis(self.station[0], self.station[1])
-        event_ecef = spherical_to_ecef(self.events[:, 0], self.events[:, 1], self.events[:, 2])
+        self.station_ecef = spherical_to_ecef(*self.station_lonlatdepth)
+        self.basis = local_basis(self.station_lonlatdepth[0], self.station_lonlatdepth[1])
+        event_ecef = spherical_to_ecef(
+            self.event_lonlatdepth[:, 0], self.event_lonlatdepth[:, 1], self.event_lonlatdepth[:, 2]
+        )
         self.station_local = torch.zeros(3, dtype=ref.dtype, device=ref.device)
         self.event_local = ecef_to_local(event_ecef, self.station_ecef, self.basis)
 
@@ -52,9 +64,9 @@ class ForwardGrid:
         self._check_index(self.station_index, source=True)
         self._check_index(self.event_index)
 
-        z, y, x = torch.meshgrid(self.z, self.y, self.x, indexing="ij")
-        local = torch.stack([x, y, z], dim=-1)
-        ecef = local_to_ecef(local, self.station_ecef, self.basis)
+        z_local, y_local, x_local = torch.meshgrid(self.z, self.y, self.x, indexing="ij")
+        xyz_local = torch.stack([x_local, y_local, z_local], dim=-1)
+        ecef = local_to_ecef(xyz_local, self.station_ecef, self.basis)
         lon, lat, depth = ecef_to_spherical(ecef)
         self._check_model_coverage(model, lon, lat, depth)
         self.model_grid = torch.stack(
@@ -88,22 +100,28 @@ class ForwardGrid:
             raise ValueError("station or event lies outside the forward grid")
 
     def sample(self, field):
-        """Differentiably sample a global ``(z, y, x)`` field onto this grid."""
+        """Differentiably sample a global ``(depth, latitude, longitude)`` field."""
         if tuple(field.shape) != self.model_shape:
             raise ValueError(f"global field shape {tuple(field.shape)} != model shape {self.model_shape}")
         if field.device.type != "cpu" or field.dtype != torch.float64:
             raise ValueError("forward-grid sampling requires CPU torch.float64 fields")
         return F.grid_sample(field[None, None], self.model_grid, mode="bilinear", padding_mode="border", align_corners=True)[0, 0]
 
-    def _live_event_index(self, events):
-        events = torch.as_tensor(events, dtype=self.station.dtype, device=self.station.device).reshape(-1, 3)
-        ecef = spherical_to_ecef(events[:, 0], events[:, 1], events[:, 2])
+    def _live_event_index(self, event_lonlatdepth):
+        event_lonlatdepth = torch.as_tensor(
+            event_lonlatdepth,
+            dtype=self.station_lonlatdepth.dtype,
+            device=self.station_lonlatdepth.device,
+        ).reshape(-1, 3)
+        ecef = spherical_to_ecef(
+            event_lonlatdepth[:, 0], event_lonlatdepth[:, 1], event_lonlatdepth[:, 2]
+        )
         index = self._index(ecef_to_local(ecef, self.station_ecef, self.basis))
         self._check_index(index)
         return index
 
     def sample_events(self, traveltime, event_indices=None, events=None):
-        """Sample a local ``(z, y, x)`` travel-time field at events."""
+        """Sample a local ``(z_local, y_local, x_local)`` field at events."""
         if tuple(traveltime.shape) != self.shape:
             raise ValueError(f"traveltime shape {tuple(traveltime.shape)} != grid shape {self.shape}")
         if events is not None and event_indices is not None:
