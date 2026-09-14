@@ -60,8 +60,8 @@ once, then use:
 
 ```bash
 cd /path/to/ADTomo_hz/tests
-python test_eikonal.py
 python test_coordinate.py
+python test_eikonal.py
 python test_grid.py
 python test_gradient.py
 ```
