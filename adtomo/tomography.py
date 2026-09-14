@@ -4,7 +4,7 @@ import torch
 import torch.nn as nn
 
 from .eikonal3d import solve_eikonal3d
-from .coordinate import R_EARTH_KM
+from .grid import R_EARTH_KM
 
 
 def predict_travel_times(model, grid, phase, event_indices=None):

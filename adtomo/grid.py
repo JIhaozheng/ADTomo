@@ -1,11 +1,75 @@
-"""Station-specific Cartesian forward grids for a spherical velocity model."""
+"""Global spherical velocity model and station-centered forward grids."""
 
 import math
 
 import torch
+import torch.nn as nn
 import torch.nn.functional as F
 
-from .coordinate import ecef_to_local, ecef_to_spherical, local_basis, local_to_ecef, spherical_to_ecef
+
+R_EARTH_KM = 6371.0
+
+
+class VelocityModel(nn.Module):
+    """Absolute Vp/Vs on a regular ``(depth, latitude, longitude)`` grid."""
+
+    def __init__(self, lon, lat, depth, vp, vs, trainable=True):
+        super().__init__()
+        vp = torch.as_tensor(vp, dtype=torch.float64, device="cpu")
+        vs = torch.as_tensor(vs, dtype=torch.float64, device="cpu")
+        self.register_buffer("lon", torch.as_tensor(lon, dtype=torch.float64, device="cpu"))
+        self.register_buffer("lat", torch.as_tensor(lat, dtype=torch.float64, device="cpu"))
+        self.register_buffer("depth", torch.as_tensor(depth, dtype=torch.float64, device="cpu"))
+        self.vp = nn.Parameter(vp.clone(), requires_grad=trainable)
+        self.vs = nn.Parameter(vs.clone(), requires_grad=trainable)
+
+
+def spherical_to_ecef(lon, lat, depth):
+    """Degrees east/north and km depth positive down to ECEF km."""
+    lon = torch.deg2rad(lon)
+    lat = torch.deg2rad(lat)
+    radius = R_EARTH_KM - depth
+    return torch.stack(
+        [
+            radius * torch.cos(lat) * torch.cos(lon),
+            radius * torch.cos(lat) * torch.sin(lon),
+            radius * torch.sin(lat),
+        ],
+        dim=-1,
+    )
+
+
+def ecef_to_spherical(xyz):
+    """ECEF km to longitude, latitude, depth in degrees/degrees/km."""
+    radius = torch.linalg.vector_norm(xyz, dim=-1)
+    lon = torch.rad2deg(torch.atan2(xyz[..., 1], xyz[..., 0]))
+    lat = torch.rad2deg(torch.atan2(xyz[..., 2], torch.hypot(xyz[..., 0], xyz[..., 1])))
+    return lon, lat, R_EARTH_KM - radius
+
+
+def local_basis(lon, lat):
+    """Rows of the East, North, Down basis at longitude/latitude."""
+    lon = torch.deg2rad(lon)
+    lat = torch.deg2rad(lat)
+    zero = torch.zeros_like(lon)
+    east = torch.stack([-torch.sin(lon), torch.cos(lon), zero], dim=-1)
+    north = torch.stack(
+        [-torch.sin(lat) * torch.cos(lon), -torch.sin(lat) * torch.sin(lon), torch.cos(lat)], dim=-1
+    )
+    down = torch.stack(
+        [-torch.cos(lat) * torch.cos(lon), -torch.cos(lat) * torch.sin(lon), -torch.sin(lat)], dim=-1
+    )
+    return torch.stack([east, north, down], dim=-2)
+
+
+def ecef_to_local(xyz, origin, basis):
+    """ECEF km to a local East/North/Down frame."""
+    return (xyz - origin) @ basis.transpose(-1, -2)
+
+
+def local_to_ecef(xyz, origin, basis):
+    """Local East/North/Down km to ECEF."""
+    return xyz @ basis + origin
 
 
 class ForwardGrid:

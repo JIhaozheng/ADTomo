@@ -1,6 +1,79 @@
 # ADTomo
 
-ADTomo is a small CPU implementation of differentiable spherical eikonal tomography using PyTorch and C++ fast-sweeping solvers.
+ADTomo is a small CPU implementation of differentiable spherical eikonal
+tomography. It has exactly two grids:
+
+1. A global velocity model `V(depth, latitude, longitude)`.
+2. A local Cartesian East/North/Down fast-sweeping grid for each station.
+
+The Earth remains spherical. Geographic points are converted to ECEF, rigidly
+translated and rotated into the station-local END frame, then sampled from the
+global model with PyTorch interpolation.
+
+## Conventions
+
+- longitude: degrees east; latitude: degrees north; depth: km positive down
+- velocity: km/s; time: seconds; Earth radius: 6371 km
+- global model tensor order: `(depth, latitude, longitude)`
+- local forward-field tensor order: `(z_local, y_local, x_local)` = `(Down, North, East)`
+- local physical-coordinate order: `(x_local, y_local, z_local)` = `(East, North, Down)`
+- retained C++ kernels: CPU-only, `torch.float64`, and one isotropic spacing
+
+The C++ kernels store local fields in physical `(x_local, y_local, z_local)`
+order. The Python wrappers hide that detail and expose local arrays in
+`(z_local, y_local, x_local)` order. This convention never applies to the
+global spherical model.
+
+## Workflow assumptions
+
+ADTomo is controlled research code. Provide regular increasing longitude,
+latitude, and depth axes; positive Vp/Vs; unique station/event IDs; and picks
+that reference those catalogs. Stations and events must lie inside the global
+model domain. The retained eikonal kernels require CPU `torch.float64`,
+positive isotropic spacing, positive velocity, and a source inside the local
+forward grid.
+
+## Catalog times
+
+The catalog preserves ISO origin and phase timestamps. Every pick is converted
+to its event-relative observed time:
+
+```text
+phase_dt = phase_time - catalog_event_time
+```
+
+With fixed catalog origin times, the modeled time is:
+
+```text
+predicted_phase_dt = travel_time
+```
+
+Event-origin corrections belong to a future joint event/velocity inversion.
+
+## Velocity objective
+
+`Tomography` combines the global arrival-time MSE with a physical
+spatial-gradient penalty on velocity perturbations relative to the initial
+model:
+
+```text
+J = (1/N) sum_i (predicted_phase_dt_i - observed_phase_dt_i)^2
+    + lambda_vp ||grad_sph(Vp - Vp0)||^2
+    + lambda_vs ||grad_sph(Vs - Vs0)||^2
+    + alpha_vp ||Vp - Vp0||^2
+    + alpha_vs ||Vs - Vs0||^2
+```
+
+`Vp0` and `Vs0` are fixed buffers captured when the objective is constructed.
+With r = R_Earth - depth, the mean squared gradient uses
+`(dm/dd)^2 + (dm/dphi / r)^2 + (dm/dlambda / (r cos(phi)))^2`.
+Thus depth differences use km directly; latitude uses r dphi and longitude
+uses r cos(phi) dlambda. All weights default to zero, preserving the
+unregularized inversion. `lambda_vp` and `lambda_vs` are spherical-gradient
+smoothness weights; `alpha_vp` and `alpha_vs` are damping weights toward the
+initial model. Set `ADTOMO_LAMBDA_VP`, `ADTOMO_LAMBDA_VS`, `ADTOMO_ALPHA_VP`,
+and `ADTOMO_ALPHA_VS` when running the synthetic inversion to compare a
+regularized case.
 
 ## Install
 
@@ -11,13 +84,28 @@ python setup.py build_ext --inplace
 pip install -e . --no-build-isolation
 ```
 
-The first build downloads Eigen and compiles the CPU eikonal solvers `eikonal2d_op` and `eikonal3d_op`.
+The first build downloads Eigen and compiles only `eikonal2d_op` and
+`eikonal3d_op`.
 
-The retained C++ kernels are CPU-only and use `torch.float64`.
+To run one test script from the test directory itself, build the extensions
+once, then use:
+
+```bash
+cd /path/to/ADTomo/tests
+python test_eikonal.py
+python test_grid.py
+python test_gradient.py
+```
+
+Each test file is directly executable after the editable installation. They
+are scientific validation scripts, not framework-collected test modules. They
+save diagnostic figures to `tests/figures/eikonal.png`,
+`tests/figures/grid_interpolation.png`, and
+`tests/figures/taylor_remainders.png`. The three plotting scripts also call
+`plt.show()`, so the figures appear when an interactive Matplotlib backend is
+available. These generated PNG files are ignored.
 
 ## Synthetic workflow
-
-Run the complete synthetic example from model generation to velocity inversion:
 
 ```bash
 cd examples
@@ -29,4 +117,14 @@ python 04_forward.py
 python 05_inversion.py
 ```
 
-Synthetic data are written to `examples/data/`. The inversion result and `inversion_progress.png` are written to `examples/results/`.
+Catalog files are written to `examples/data/`; the inversion writes one final
+model and `inversion_progress.png` to `examples/results/`.
+
+The complete forward path stays visible:
+
+```python
+grid = ForwardGrid(station_lonlatdepth, event_lonlatdepth, model, spacing=5.0)
+predicted_phase_dt = predict_travel_times(model, grid, "P")
+loss = ((predicted_phase_dt - observed_phase_dt) ** 2).mean()
+loss.backward()
+```

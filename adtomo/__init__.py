@@ -1,5 +1,7 @@
-from .coordinate import (
+from .grid import (
     R_EARTH_KM,
+    ForwardGrid,
+    VelocityModel,
     ecef_to_local,
     ecef_to_spherical,
     local_basis,
@@ -8,6 +10,4 @@ from .coordinate import (
 )
 from .eikonal2d import solve_eikonal2d
 from .eikonal3d import solve_eikonal3d
-from .grid import ForwardGrid
-from .model import VelocityModel
 from .tomography import Tomography, predict_travel_times, smoothness
