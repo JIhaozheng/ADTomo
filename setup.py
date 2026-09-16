@@ -35,6 +35,7 @@ def cpp_ext(name, source):
         name=name,
         sources=[source],
         include_dirs=[os.path.join(ROOT, "adtomo", "eigen")],
+        extra_compile_args={"cxx": ["-std=c++20"]},
         extra_link_args=[f"-Wl,-rpath,{torch_lib_dir}"],
         language="c++",
     )

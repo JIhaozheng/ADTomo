@@ -87,7 +87,7 @@ pip install -e . --no-build-isolation
 ```
 
 The first build downloads Eigen and compiles only `eikonal2d_op` and
-`eikonal3d_op`.
+`eikonal3d_op`. A compiler with C++20 support is required.
 
 To run one test script from the test directory itself, build the extensions
 once, then use:
