@@ -116,6 +116,18 @@ python 04_inversion.py
 Catalog files are written to `examples/data/`; the inversion writes one final
 model and `inversion_progress.png` to `examples/results/`.
 
+For station-group CPU DDP, run the same inversion on two ranks from the
+`examples` directory:
+
+```bash
+torchrun --standalone --nproc_per_node=2 parallel/inversion_ddp.py
+torchrun --standalone --nproc_per_node=2 parallel/inversion_ddp.py --validate
+```
+
+Each rank owns `groups[rank::world_size]`. Its local squared-residual sum is
+scaled by `world_size / N`, so DDP's averaged gradient equals the serial MSE;
+the identical full-model regularization is evaluated on every rank.
+
 The complete forward path stays visible:
 
 ```python
