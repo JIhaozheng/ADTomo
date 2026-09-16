@@ -13,7 +13,6 @@ static inline int index3d(int i, int j, int k, int n, int l) {
     return i * n * l + j * l + k;
 }
 
-// Shared, ordered description of the eight corners of the source cell.
 struct SourceCell {
     int ix0, jx0, kx0;
     int ix1, jx1, kx1;
@@ -179,7 +178,7 @@ static void upwind_split(double a, double &am, double &ap) {
     ap = (a + std::fabs(a)) * 0.5;
 }
 
-// Ordinary bulk stencil for div(lambda grad(-T)) = delta with zero exterior flux.
+// Continuous adjoint: div(lambda grad(-T)) = delta with zero exterior flux.
 static double adjoint_update(const double *T, const double *lam, const double *delta,
                                    int m, int n, int l, int i, int j, int k, double h) {
     auto T_at = [&](int ii, int jj, int kk) -> double {
@@ -291,8 +290,7 @@ static void source_gradient(
     }
 }
 
-// The source-corner rows are pinned identities.  Their exact adjoint balance is
-// grad_u at each corner minus contributions from neighboring ordinary rows.
+// Discrete source adjoint: lambda_C = g_C - F_EC^T lambda_E.
 static std::array<double, 8> source_adjoint(
     const SourceCell &source, const double *grad_u, const double *u, const double *lambda,
     int m, int n, int l, double lambda_scale) {
@@ -341,7 +339,6 @@ static std::array<double, 8> source_adjoint(
     return result;
 }
 
-// Hybrid backward: FSM + src correction on source corners only.
 static void solve_backward(
     double *grad_f, const double *grad_u, const double *u, const double *f, double h,
     int m, int n, int l, double x, double y, double z) {
@@ -357,9 +354,10 @@ static void solve_backward(
 
     for (int i = 0; i < nn; ++i) grad_f[i] = lambda[i] * f[i] * vol;
 
-    // Src correction: only the 8 source-box corners.
+    // Source corners satisfy T_C = S(p_C).
     const auto source = make_source_cell(m, n, l, h, x, y, z);
     const auto corner_adjoint = source_adjoint(source, grad_u, u, lambda.data(), m, n, l, lam_scale);
+    // Source chain rule: g_pC = (dS/dp_C)^T lambda_C.
     source_gradient(grad_f, source, corner_adjoint);
 }
 
