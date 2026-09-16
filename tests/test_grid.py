@@ -60,13 +60,21 @@ local_lat = model.lat[0] + (sample_coordinates[..., 1] + 1) * (model.lat[-1] - m
 local_depth = model.depth[0] + (sample_coordinates[..., 2] + 1) * (model.depth[-1] - model.depth[0]) / 2
 expected_field = 0.01 * local_depth + 0.1 * local_lat + local_lon
 assert torch.allclose(local_field, expected_field, atol=1e-9)
+assert local_field.shape == (len(grid.x), len(grid.y), len(grid.z))
+
+# Event interpolation accepts the same physical (East, North, Down) layout.
+local_coordinate_field = 100.0 * torch.arange(len(grid.x), dtype=torch.float64)[:, None, None]
+local_coordinate_field = local_coordinate_field + 10.0 * torch.arange(len(grid.y), dtype=torch.float64)[None, :, None]
+local_coordinate_field = local_coordinate_field + torch.arange(len(grid.z), dtype=torch.float64)[None, None, :]
+expected_event_value = 100.0 * grid.events_index[:, 0] + 10.0 * grid.events_index[:, 1] + grid.events_index[:, 2]
+assert torch.allclose(grid.sample_events(local_coordinate_field), expected_event_value, atol=1e-12)
 
 global_depth_index = int(torch.argmin((model.depth - 10.0).abs()))
 local_down_index = int(torch.argmin((grid.z - 10.0).abs()))
 lon_indices = torch.where((model.lon >= local_lon.min()) & (model.lon <= local_lon.max()))[0]
 lat_indices = torch.where((model.lat >= local_lat.min()) & (model.lat <= local_lat.max()))[0]
 global_slice = global_field[global_depth_index][lat_indices][:, lon_indices]
-local_slice = local_field[local_down_index]
+local_slice = local_field[:, :, local_down_index].T
 vmin = min(global_slice.min().item(), local_slice.min().item())
 vmax = max(global_slice.max().item(), local_slice.max().item())
 

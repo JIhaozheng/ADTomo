@@ -76,9 +76,9 @@ class ForwardGrid:
     """A fixed East/North/Down forward grid for one station.
 
     Global model fields use ``(depth, latitude, longitude)`` tensor order.
-    Local forward and travel-time fields use ``(z_local, y_local, x_local)``
-    = ``(Down, North, East)``. Fractional local locations use physical order
-    ``(x_local, y_local, z_local)`` = ``(East, North, Down)``.
+    Local forward and travel-time fields use ``(x_local, y_local, z_local)``
+    = ``(East, North, Down)``. Fractional local locations use this same
+    physical order.
     """
 
     def __init__(self, station_spherical, events_spherical, model, spacing):
@@ -101,11 +101,11 @@ class ForwardGrid:
         self.x = low[0] + torch.arange(nxyz[0], dtype=ref.dtype, device=ref.device) * self.spacing
         self.y = low[1] + torch.arange(nxyz[1], dtype=ref.dtype, device=ref.device) * self.spacing
         self.z = low[2] + torch.arange(nxyz[2], dtype=ref.dtype, device=ref.device) * self.spacing
-        self.shape = (len(self.z), len(self.y), len(self.x))
+        self.shape = (len(self.x), len(self.y), len(self.z))
         self.station_index = (station_local - low) / self.spacing
         self.events_index = (event_local - low) / self.spacing
 
-        z_local, y_local, x_local = torch.meshgrid(self.z, self.y, self.x, indexing="ij")
+        x_local, y_local, z_local = torch.meshgrid(self.x, self.y, self.z, indexing="ij")
         xyz_local = torch.stack([x_local, y_local, z_local], dim=-1)
         ecef = local_to_ecef(xyz_local, station_ecef, basis)
         lon, lat, depth = ecef_to_spherical(ecef)
@@ -135,13 +135,16 @@ class ForwardGrid:
         )[0, 0]
 
     def sample_events(self, traveltime, event_indices=None):
-        """Sample a local ``(z_local, y_local, x_local)`` field at events."""
+        """Sample a local ``(x_local, y_local, z_local)`` field at events."""
         index = self.events_index
         if event_indices is not None:
             index = index[event_indices]
         nx, ny, nz = len(self.x), len(self.y), len(self.z)
+        # grid_sample's coordinates address its trailing (width, height,
+        # depth) dimensions.  Our local tensor is (East, North, Down), so
+        # query it as (Down, North, East).
         query = torch.stack(
-            [2.0 * index[:, 0] / (nx - 1) - 1.0, 2.0 * index[:, 1] / (ny - 1) - 1.0, 2.0 * index[:, 2] / (nz - 1) - 1.0],
+            [2.0 * index[:, 2] / (nz - 1) - 1.0, 2.0 * index[:, 1] / (ny - 1) - 1.0, 2.0 * index[:, 0] / (nx - 1) - 1.0],
             dim=-1,
         ).view(1, -1, 1, 1, 3)
         return F.grid_sample(traveltime[None, None], query, mode="bilinear", align_corners=True)[0, 0, :, 0, 0]

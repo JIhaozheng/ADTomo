@@ -38,7 +38,7 @@ traveltime_field = solve_eikonal3d(local_velocity, grid.station_index, grid.spac
 travel_time = grid.sample_events(traveltime_field, event_indices=grid_event_indices)
 predicted_phase_dt = travel_time
 
-print(f"station={station_id} local field shape (Down, North, East)={grid.shape}")
+print(f"station={station_id} local field shape (East, North, Down)={grid.shape}")
 for event_id, observed, propagation, predicted in zip(
     station_picks.event_id[:5], observed_phase_dt[:5], travel_time[:5], predicted_phase_dt[:5]
 ):

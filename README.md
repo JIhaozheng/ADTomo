@@ -15,14 +15,11 @@ global model with PyTorch interpolation.
 - longitude: degrees east; latitude: degrees north; depth: km positive down
 - velocity: km/s; time: seconds; Earth radius: 6371 km
 - global model tensor order: `(depth, latitude, longitude)`
-- local forward-field tensor order: `(z_local, y_local, x_local)` = `(Down, North, East)`
-- local physical-coordinate order: `(x_local, y_local, z_local)` = `(East, North, Down)`
+- local forward-field and physical-coordinate order: `(x_local, y_local, z_local)` = `(East, North, Down)`
 - retained C++ kernels: CPU-only, `torch.float64`, and one isotropic spacing
 
-The C++ kernels store local fields in physical `(x_local, y_local, z_local)`
-order. The Python wrappers hide that detail and expose local arrays in
-`(z_local, y_local, x_local)` order. This convention never applies to the
-global spherical model.
+The Python and C++ local-field layouts are identical. This convention never
+applies to the global spherical model.
 
 ## Workflow assumptions
 
