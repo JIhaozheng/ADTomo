@@ -14,5 +14,4 @@ __pycache__
 .DS_Store
 examples/data/
 examples/results/
-experiments/**/results/
 .ipynb_checkpoints/
