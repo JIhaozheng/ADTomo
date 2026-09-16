@@ -92,6 +92,7 @@ cd /path/to/ADTomo/tests
 python test_eikonal.py
 python test_grid.py
 python test_gradient.py
+python benchmark_interpolation.py
 ```
 
 Each test file is directly executable after the editable installation. They
@@ -101,6 +102,12 @@ save diagnostic figures to `tests/figures/eikonal.png`,
 `tests/figures/taylor_remainders.png`. The three plotting scripts also call
 `plt.show()`, so the figures appear when an interactive Matplotlib backend is
 available. These generated PNG files are ignored.
+
+`benchmark_interpolation.py` compares the retained `grid_sample` event
+interpolation with vectorized manual trilinear interpolation on CPU float64.
+It verifies values and travel-time-field gradients, then reports forward and
+backward timings for 1 through 10,000 events. `grid_sample` is retained because
+it is the clearer and faster path in this benchmark.
 
 ## Synthetic workflow
 
