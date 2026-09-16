@@ -33,11 +33,11 @@ assert torch.allclose(
 
 coordinate_basis = local_basis(coordinate_station_spherical[0], coordinate_station_spherical[1])
 assert torch.allclose(coordinate_basis @ coordinate_basis.T, torch.eye(3, dtype=torch.float64), atol=1e-12)
-coordinate_event_local = ecef_to_local(coordinate_points_ecef[1:], coordinate_points_ecef[0], coordinate_basis)
-coordinate_event_ecef_roundtrip = local_to_ecef(coordinate_event_local, coordinate_points_ecef[0], coordinate_basis)
-assert torch.allclose(coordinate_event_ecef_roundtrip, coordinate_points_ecef[1:], atol=1e-10)
+coordinate_events_local = ecef_to_local(coordinate_points_ecef[1:], coordinate_points_ecef[0], coordinate_basis)
+coordinate_events_ecef_roundtrip = local_to_ecef(coordinate_events_local, coordinate_points_ecef[0], coordinate_basis)
+assert torch.allclose(coordinate_events_ecef_roundtrip, coordinate_points_ecef[1:], atol=1e-10)
 assert torch.allclose(
-    ecef_to_local(coordinate_event_ecef_roundtrip, coordinate_points_ecef[0], coordinate_basis), coordinate_event_local, atol=1e-10
+    ecef_to_local(coordinate_events_ecef_roundtrip, coordinate_points_ecef[0], coordinate_basis), coordinate_events_local, atol=1e-10
 )
 
 lon = torch.arange(-121.0, -118.9, 0.1, dtype=torch.float64)
