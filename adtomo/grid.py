@@ -97,16 +97,38 @@ class ForwardGrid:
         station_local = torch.zeros(3, dtype=reference.dtype, device=reference.device)
         events_local = ecef_to_local(events_ecef, station_ecef, basis)
 
-        local_points = torch.cat([station_local[None], events_local], dim=0)
-        lower = local_points.amin(dim=0) - 2.0 * self.spacing
-        upper = local_points.amax(dim=0) + 2.0 * self.spacing
-        shape_xyz = tuple(max(2, math.ceil(float((upper[i] - lower[i]) / self.spacing)) + 1) for i in range(3))
-        self.x = lower[0] + torch.arange(shape_xyz[0], dtype=reference.dtype, device=reference.device) * self.spacing
-        self.y = lower[1] + torch.arange(shape_xyz[1], dtype=reference.dtype, device=reference.device) * self.spacing
-        self.z = lower[2] + torch.arange(shape_xyz[2], dtype=reference.dtype, device=reference.device) * self.spacing
+        if torch.any(events_local[:, 2] < -1e-8):
+            raise ValueError("ForwardGrid assumes the station is the top boundary, but an event lies above it")
+
+        padding = 2.0 * self.spacing
+        x_min = torch.minimum(station_local[0], events_local[:, 0].min()) - padding
+        x_max = torch.maximum(station_local[0], events_local[:, 0].max()) + padding
+        y_min = torch.minimum(station_local[1], events_local[:, 1].min()) - padding
+        y_max = torch.maximum(station_local[1], events_local[:, 1].max()) + padding
+        z_min = torch.zeros((), dtype=reference.dtype, device=reference.device)
+        z_max = torch.maximum(station_local[2], events_local[:, 2].max()) + padding
+        nx = max(2, math.ceil(float((x_max - x_min) / self.spacing)) + 1)
+        ny = max(2, math.ceil(float((y_max - y_min) / self.spacing)) + 1)
+        nz = max(2, math.ceil(float((z_max - z_min) / self.spacing)) + 1)
+        self.x = x_min + torch.arange(nx, dtype=reference.dtype, device=reference.device) * self.spacing
+        self.y = y_min + torch.arange(ny, dtype=reference.dtype, device=reference.device) * self.spacing
+        self.z = z_min + torch.arange(nz, dtype=reference.dtype, device=reference.device) * self.spacing
         self.shape = (len(self.z), len(self.y), len(self.x))
-        self.station_index = (station_local - lower) / self.spacing
-        self.events_index = (events_local - lower) / self.spacing
+        self.station_index = torch.stack(
+            [
+                (station_local[0] - x_min) / self.spacing,
+                (station_local[1] - y_min) / self.spacing,
+                (station_local[2] - z_min) / self.spacing,
+            ]
+        )
+        self.events_index = torch.stack(
+            [
+                (events_local[:, 0] - x_min) / self.spacing,
+                (events_local[:, 1] - y_min) / self.spacing,
+                (events_local[:, 2] - z_min) / self.spacing,
+            ],
+            dim=-1,
+        )
 
         z_local, y_local, x_local = torch.meshgrid(self.z, self.y, self.x, indexing="ij")
         local_points = torch.stack([x_local, y_local, z_local], dim=-1)
@@ -147,7 +169,6 @@ class ForwardGrid:
         if event_indices is not None:
             index = index[event_indices]
         nx, ny, nz = len(self.x), len(self.y), len(self.z)
-        # grid_sample maps (x, y, z) to tensor dimensions (W, H, D).
         event_grid = torch.stack(
             [2.0 * index[:, 0] / (nx - 1) - 1.0, 2.0 * index[:, 1] / (ny - 1) - 1.0, 2.0 * index[:, 2] / (nz - 1) - 1.0],
             dim=-1,
