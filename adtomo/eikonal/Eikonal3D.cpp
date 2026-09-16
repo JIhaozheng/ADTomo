@@ -6,9 +6,7 @@
 
 #include <algorithm>
 #include <cmath>
-#include <cstring>
 #include <tuple>
-#include <unordered_map>
 #include <vector>
 
 static inline int gid(int i, int j, int k, int n, int l) {
@@ -20,7 +18,6 @@ struct SourceCell {
     int ix0, jx0, kx0;
     int ix1, jx1, kx1;
     std::array<int, 8> ids;
-    double wx, wy, wz;
     std::array<double, 8> weights;
     std::array<double, 8> distances;
 };
@@ -52,7 +49,7 @@ static SourceCell make_source_cell(int m, int n, int l, double h, double x, doub
              gid(ix0, jx1, kx0, n, l), gid(ix0, jx1, kx1, n, l),
              gid(ix1, jx0, kx0, n, l), gid(ix1, jx0, kx1, n, l),
              gid(ix1, jx1, kx0, n, l), gid(ix1, jx1, kx1, n, l)},
-            wx, wy, wz, weights, distances};
+            weights, distances};
 }
 
 static double calculate_unique_solution(double a1_, double a2_, double a3_, double f, double h) {
@@ -281,15 +278,12 @@ static void solve_bulk_adjoint(double *lambda, const double *T, const double *de
 }
 
 // Apply the exact transpose of the source-cell Simpson initialization.
-static void apply_source_gradient(
-    double *grad_f, const double *res,
-    int m, int n, int l, double h, double x, double y, double z) {
-    const auto source = make_source_cell(m, n, l, h, x, y, z);
-
+static void source_gradient(
+    double *grad_f, const SourceCell &source, const std::array<double, 8> &source_adjoint) {
     for (int parameter_corner = 0; parameter_corner < 8; ++parameter_corner) {
         double value = 0.0;
         for (int travel_time_corner = 0; travel_time_corner < 8; ++travel_time_corner) {
-            value += res[source.ids[travel_time_corner]] * source.distances[travel_time_corner] *
+            value += source_adjoint[travel_time_corner] * source.distances[travel_time_corner] *
                      (source.weights[parameter_corner] + 0.5 +
                       (parameter_corner == travel_time_corner ? 1.0 : 0.0));
         }
@@ -297,93 +291,54 @@ static void apply_source_gradient(
     }
 }
 
-// Collect one Godunov Jacobian row as (col, val) pairs.
-static void collect_godunov_row(
-    std::vector<std::pair<int, double>> &entries, const double *u, int m, int n, int l,
-    int i, int j, int k, int ix0, int jx0, int kx0, int ix1, int jx1, int kx1) {
-    entries.clear();
-    int this_id = gid(i, j, k, n, l);
-    if (is_source_corner(i, j, k, ix0, jx0, kx0, ix1, jx1, kx1)) {
-        entries.emplace_back(this_id, 1.0);
-        return;
-    }
-
-    auto U = [&](int ii, int jj, int kk) { return u[gid(ii, jj, kk, n, l)]; };
-
-    double uxmin = i == 0 ? U(i + 1, j, k)
-                          : (i == m - 1 ? U(i - 1, j, k) : std::min(U(i + 1, j, k), U(i - 1, j, k)));
-    double uymin = j == 0 ? U(i, j + 1, k)
-                          : (j == n - 1 ? U(i, j - 1, k) : std::min(U(i, j + 1, k), U(i, j - 1, k)));
-    double uzmin = k == 0 ? U(i, j, k + 1)
-                          : (k == l - 1 ? U(i, j, k - 1) : std::min(U(i, j, k + 1), U(i, j, k - 1)));
-
-    int idx = i == 0 ? gid(i + 1, j, k, n, l)
-                     : (i == m - 1 ? gid(i - 1, j, k, n, l)
-                                   : (U(i + 1, j, k) > U(i - 1, j, k) ? gid(i - 1, j, k, n, l)
-                                                                      : gid(i + 1, j, k, n, l)));
-    int idy = j == 0 ? gid(i, j + 1, k, n, l)
-                     : (j == n - 1 ? gid(i, j - 1, k, n, l)
-                                   : (U(i, j + 1, k) > U(i, j - 1, k) ? gid(i, j - 1, k, n, l)
-                                                                      : gid(i, j + 1, k, n, l)));
-    int idz = k == 0 ? gid(i, j, k + 1, n, l)
-                     : (k == l - 1 ? gid(i, j, k - 1, n, l)
-                                   : (U(i, j, k + 1) > U(i, j, k - 1) ? gid(i, j, k - 1, n, l)
-                                                                      : gid(i, j, k + 1, n, l)));
-
-    if (U(i, j, k) > uxmin) {
-        entries.emplace_back(this_id, 2.0 * (U(i, j, k) - uxmin));
-        entries.emplace_back(idx, -2.0 * (U(i, j, k) - uxmin));
-    }
-    if (U(i, j, k) > uymin) {
-        entries.emplace_back(this_id, 2.0 * (U(i, j, k) - uymin));
-        entries.emplace_back(idy, -2.0 * (U(i, j, k) - uymin));
-    }
-    if (U(i, j, k) > uzmin) {
-        entries.emplace_back(this_id, 2.0 * (U(i, j, k) - uzmin));
-        entries.emplace_back(idz, -2.0 * (U(i, j, k) - uzmin));
-    }
-}
-
 // The source-corner rows are pinned identities.  Their exact adjoint balance is
 // grad_u at each corner minus contributions from neighboring ordinary rows.
-static void compute_source_corner_adjoint(
-    double *res_out, const double *grad_u, const double *u, const double *lam_scaled,
-    int m, int n, int l, double x, double y, double z, int radius = 1) {
-    const int nn = m * n * l;
-    const auto source = make_source_cell(m, n, l, 1.0, x, y, z);
+static std::array<double, 8> source_adjoint(
+    const SourceCell &source, const double *grad_u, const double *u, const double *lambda,
+    int m, int n, int l, double lambda_scale) {
     const int ix0 = source.ix0, jx0 = source.jx0, kx0 = source.kx0;
     const int ix1 = source.ix1, jx1 = source.jx1, kx1 = source.kx1;
 
-    int i_lo = std::max(0, ix0 - radius);
-    int i_hi = std::min(m - 1, ix1 + radius);
-    int j_lo = std::max(0, jx0 - radius);
-    int j_hi = std::min(n - 1, jx1 + radius);
-    int k_lo = std::max(0, kx0 - radius);
-    int k_hi = std::min(l - 1, kx1 + radius);
+    std::array<double, 8> result;
+    for (int corner = 0; corner < 8; ++corner) result[corner] = grad_u[source.ids[corner]];
+    const auto corner_index = [&](int id) {
+        for (int corner = 0; corner < 8; ++corner)
+            if (source.ids[corner] == id) return corner;
+        return -1;
+    };
 
-    std::memcpy(res_out, lam_scaled, sizeof(double) * nn);
-
-    std::unordered_map<int, int> source_index;
-    source_index.reserve(source.ids.size() * 2);
-    for (int p = 0; p < 8; ++p) source_index[source.ids[p]] = p;
-
-    for (int id : source.ids) res_out[id] = grad_u[id];
-
-    std::vector<std::pair<int, double>> entries;
-    entries.reserve(8);
-    for (int i = i_lo; i <= i_hi; ++i) {
-        for (int j = j_lo; j <= j_hi; ++j) {
-            for (int k = k_lo; k <= k_hi; ++k) {
+    for (int i = std::max(0, ix0 - 1); i <= std::min(m - 1, ix1 + 1); ++i) {
+        for (int j = std::max(0, jx0 - 1); j <= std::min(n - 1, jx1 + 1); ++j) {
+            for (int k = std::max(0, kx0 - 1); k <= std::min(l - 1, kx1 + 1); ++k) {
                 if (is_source_corner(i, j, k, ix0, jx0, kx0, ix1, jx1, kx1)) continue;
                 const int row = gid(i, j, k, n, l);
-                collect_godunov_row(entries, u, m, n, l, i, j, k, ix0, jx0, kx0, ix1, jx1, kx1);
-                for (const auto &entry : entries) {
-                    if (source_index.contains(entry.first))
-                        res_out[entry.first] -= entry.second * lam_scaled[row];
-                }
+                const auto U = [&](int ii, int jj, int kk) { return u[gid(ii, jj, kk, n, l)]; };
+                const double uxmin = i == 0 ? U(i + 1, j, k)
+                    : (i == m - 1 ? U(i - 1, j, k) : std::min(U(i + 1, j, k), U(i - 1, j, k)));
+                const double uymin = j == 0 ? U(i, j + 1, k)
+                    : (j == n - 1 ? U(i, j - 1, k) : std::min(U(i, j + 1, k), U(i, j - 1, k)));
+                const double uzmin = k == 0 ? U(i, j, k + 1)
+                    : (k == l - 1 ? U(i, j, k - 1) : std::min(U(i, j, k + 1), U(i, j, k - 1)));
+                const int idx = i == 0 ? gid(i + 1, j, k, n, l)
+                    : (i == m - 1 ? gid(i - 1, j, k, n, l)
+                    : (U(i + 1, j, k) > U(i - 1, j, k) ? gid(i - 1, j, k, n, l) : gid(i + 1, j, k, n, l)));
+                const int idy = j == 0 ? gid(i, j + 1, k, n, l)
+                    : (j == n - 1 ? gid(i, j - 1, k, n, l)
+                    : (U(i, j + 1, k) > U(i, j - 1, k) ? gid(i, j - 1, k, n, l) : gid(i, j + 1, k, n, l)));
+                const int idz = k == 0 ? gid(i, j, k + 1, n, l)
+                    : (k == l - 1 ? gid(i, j, k - 1, n, l)
+                    : (U(i, j, k + 1) > U(i, j, k - 1) ? gid(i, j, k - 1, n, l) : gid(i, j, k + 1, n, l)));
+                const auto subtract = [&](int id, double coefficient) {
+                    const int corner = corner_index(id);
+                    if (corner >= 0) result[corner] -= coefficient * lambda[row] * lambda_scale;
+                };
+                if (U(i, j, k) > uxmin) subtract(idx, -2.0 * (U(i, j, k) - uxmin));
+                if (U(i, j, k) > uymin) subtract(idy, -2.0 * (U(i, j, k) - uymin));
+                if (U(i, j, k) > uzmin) subtract(idz, -2.0 * (U(i, j, k) - uzmin));
             }
         }
     }
+    return result;
 }
 
 // Hybrid backward: FSM + src correction on source corners only.
@@ -400,14 +355,12 @@ static void backward(
     std::vector<double> lambda(nn);
     solve_bulk_adjoint(lambda.data(), u, delta.data(), m, n, l, h);
 
-    std::vector<double> lam_scaled(nn);
-    for (int i = 0; i < nn; ++i) lam_scaled[i] = lambda[i] * lam_scale;
     for (int i = 0; i < nn; ++i) grad_f[i] = lambda[i] * f[i] * vol;
 
     // Src correction: only the 8 source-box corners.
-    std::vector<double> res(nn);
-    compute_source_corner_adjoint(res.data(), grad_u, u, lam_scaled.data(), m, n, l, x, y, z, 1);
-    apply_source_gradient(grad_f, res.data(), m, n, l, h, x, y, z);
+    const auto source = make_source_cell(m, n, l, h, x, y, z);
+    const auto corner_adjoint = source_adjoint(source, grad_u, u, lambda.data(), m, n, l, lam_scale);
+    source_gradient(grad_f, source, corner_adjoint);
 }
 
 // ---------------------------------------------------------------------------
