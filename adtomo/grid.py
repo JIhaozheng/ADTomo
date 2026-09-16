@@ -83,35 +83,43 @@ class ForwardGrid:
 
     def __init__(self, station_spherical, events_spherical, model, spacing):
         self.spacing = float(spacing)
-        ref = model.vp
-        station_spherical = torch.as_tensor(station_spherical, dtype=ref.dtype, device=ref.device).reshape(3)
-        events_spherical = torch.as_tensor(events_spherical, dtype=ref.dtype, device=ref.device).reshape(-1, 3)
+        reference = model.vp
+        station_spherical = torch.as_tensor(
+            station_spherical, dtype=reference.dtype, device=reference.device
+        ).reshape(3)
+        events_spherical = torch.as_tensor(
+            events_spherical, dtype=reference.dtype, device=reference.device
+        ).reshape(-1, 3)
         station_ecef = spherical_to_ecef(*station_spherical)
         basis = local_basis(station_spherical[0], station_spherical[1])
-        event_ecef = spherical_to_ecef(
+        events_ecef = spherical_to_ecef(
             events_spherical[:, 0], events_spherical[:, 1], events_spherical[:, 2]
         )
-        station_local = torch.zeros(3, dtype=ref.dtype, device=ref.device)
-        event_local = ecef_to_local(event_ecef, station_ecef, basis)
+        station_local = torch.zeros(3, dtype=reference.dtype, device=reference.device)
+        events_local = ecef_to_local(events_ecef, station_ecef, basis)
 
-        points = torch.cat([station_local[None], event_local], dim=0)
-        low = points.amin(dim=0) - 2.0 * self.spacing
-        high = points.amax(dim=0) + 2.0 * self.spacing
-        nxyz = tuple(max(2, math.ceil(float((high[i] - low[i]) / self.spacing)) + 1) for i in range(3))
-        self.x = low[0] + torch.arange(nxyz[0], dtype=ref.dtype, device=ref.device) * self.spacing
-        self.y = low[1] + torch.arange(nxyz[1], dtype=ref.dtype, device=ref.device) * self.spacing
-        self.z = low[2] + torch.arange(nxyz[2], dtype=ref.dtype, device=ref.device) * self.spacing
+        local_points = torch.cat([station_local[None], events_local], dim=0)
+        lower = local_points.amin(dim=0) - 2.0 * self.spacing
+        upper = local_points.amax(dim=0) + 2.0 * self.spacing
+        shape_xyz = tuple(max(2, math.ceil(float((upper[i] - lower[i]) / self.spacing)) + 1) for i in range(3))
+        self.x = lower[0] + torch.arange(shape_xyz[0], dtype=reference.dtype, device=reference.device) * self.spacing
+        self.y = lower[1] + torch.arange(shape_xyz[1], dtype=reference.dtype, device=reference.device) * self.spacing
+        self.z = lower[2] + torch.arange(shape_xyz[2], dtype=reference.dtype, device=reference.device) * self.spacing
         self.shape = (len(self.x), len(self.y), len(self.z))
-        self.station_index = (station_local - low) / self.spacing
-        self.events_index = (event_local - low) / self.spacing
+        self.station_index = (station_local - lower) / self.spacing
+        self.events_index = (events_local - lower) / self.spacing
 
         x_local, y_local, z_local = torch.meshgrid(self.x, self.y, self.z, indexing="ij")
-        xyz_local = torch.stack([x_local, y_local, z_local], dim=-1)
-        ecef = local_to_ecef(xyz_local, station_ecef, basis)
-        lon, lat, depth = ecef_to_spherical(ecef)
-        self._check_model_coverage(model, lon, lat, depth)
+        local_points = torch.stack([x_local, y_local, z_local], dim=-1)
+        grid_ecef = local_to_ecef(local_points, station_ecef, basis)
+        grid_lon, grid_lat, grid_depth = ecef_to_spherical(grid_ecef)
+        self._check_model_coverage(model, grid_lon, grid_lat, grid_depth)
         self.sample_grid = torch.stack(
-            [self._normalize(lon, model.lon), self._normalize(lat, model.lat), self._normalize(depth, model.depth)],
+            [
+                self._normalize(grid_lon, model.lon),
+                self._normalize(grid_lat, model.lat),
+                self._normalize(grid_depth, model.depth),
+            ],
             dim=-1,
         ).unsqueeze(0)
 
@@ -128,10 +136,10 @@ class ForwardGrid:
                     f"but model provides [{axis[0].item():.4f}, {axis[-1].item():.4f}]"
                 )
 
-    def sample_model(self, field):
+    def sample_model(self, model_field):
         """Differentiably sample a global ``(depth, latitude, longitude)`` field."""
         return F.grid_sample(
-            field[None, None], self.sample_grid, mode="bilinear", padding_mode="border", align_corners=True
+            model_field[None, None], self.sample_grid, mode="bilinear", padding_mode="border", align_corners=True
         )[0, 0]
 
     def sample_events(self, traveltime, event_indices=None):
@@ -143,8 +151,8 @@ class ForwardGrid:
         # grid_sample's coordinates address its trailing (width, height,
         # depth) dimensions.  Our local tensor is (East, North, Down), so
         # query it as (Down, North, East).
-        query = torch.stack(
+        event_grid = torch.stack(
             [2.0 * index[:, 2] / (nz - 1) - 1.0, 2.0 * index[:, 1] / (ny - 1) - 1.0, 2.0 * index[:, 0] / (nx - 1) - 1.0],
             dim=-1,
         ).view(1, -1, 1, 1, 3)
-        return F.grid_sample(traveltime[None, None], query, mode="bilinear", align_corners=True)[0, 0, :, 0, 0]
+        return F.grid_sample(traveltime[None, None], event_grid, mode="bilinear", align_corners=True)[0, 0, :, 0, 0]

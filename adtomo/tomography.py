@@ -20,12 +20,12 @@ def smoothness(field, lon, lat, depth):
     dz_km = depth[1:] - depth[:-1]
     dlat = torch.deg2rad(lat[1:] - lat[:-1])
     dlon = torch.deg2rad(lon[1:] - lon[:-1])
-    grad_z = (field[1:, :, :] - field[:-1, :, :]) / dz_km[:, None, None]
-    grad_y = (field[:, 1:, :] - field[:, :-1, :]) / (radius[:, None, None] * dlat[None, :, None])
-    grad_x = (field[:, :, 1:] - field[:, :, :-1]) / (
+    grad_depth = (field[1:, :, :] - field[:-1, :, :]) / dz_km[:, None, None]
+    grad_lat = (field[:, 1:, :] - field[:, :-1, :]) / (radius[:, None, None] * dlat[None, :, None])
+    grad_lon = (field[:, :, 1:] - field[:, :, :-1]) / (
         radius[:, None, None] * torch.cos(torch.deg2rad(lat))[None, :, None] * dlon[None, None, :]
     )
-    return grad_z.square().mean() + grad_y.square().mean() + grad_x.square().mean()
+    return grad_depth.square().mean() + grad_lat.square().mean() + grad_lon.square().mean()
 
 
 class Tomography(nn.Module):
