@@ -19,6 +19,9 @@ global model with PyTorch interpolation.
 - local scalar-field tensor order: `(z_local, y_local, x_local)` = `(Down, North, East)`
 - retained C++ kernels: CPU-only, `torch.float64`, and one isotropic spacing
 
+Each station defines the top of its local forward grid at `z = 0`. Horizontal
+padding is symmetric; vertical padding is applied only below the event region.
+
 The local Python and C++ field layouts are both DNE: a contiguous C++ buffer
 uses `flat_index = x + nx * (y + ny * z)`, so East is the fastest-varying
 axis. Source and event positions remain physical END coordinates. For PyTorch
