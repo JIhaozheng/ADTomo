@@ -7,7 +7,6 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
-#include <limits>
 #include <tuple>
 #include <unordered_map>
 #include <vector>
@@ -322,25 +321,7 @@ torch::Tensor eikonal_backward(torch::Tensor grad_u, torch::Tensor u, torch::Ten
     return grad_f;
 }
 
-torch::Tensor eikonal_solve_adjoint(torch::Tensor T, torch::Tensor delta, double h,
-                                    double x, double y) {
-    TORCH_CHECK(T.dim() == 2 && delta.dim() == 2, "T and delta must be 2D");
-    TORCH_CHECK(T.sizes() == delta.sizes(), "T and delta must have the same shape");
-    TORCH_CHECK(T.is_contiguous() && delta.is_contiguous(), "T and delta must be contiguous");
-    int nx = T.size(0), ny = T.size(1);
-    (void)x;
-    (void)y;
-    auto lambda = torch::zeros_like(T);
-    solve_bulk_adjoint(lambda.data_ptr<double>(), T.data_ptr<double>(),
-                       delta.data_ptr<double>(), nx, ny, h);
-    return lambda;
-}
-
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     m.def("forward", &eikonal_forward, "Eikonal2D forward");
     m.def("backward", &eikonal_backward, "Eikonal2D backward");
-    m.def("solve_adjoint", &eikonal_solve_adjoint, "Eikonal2D solve_adjoint",
-          pybind11::arg("T"), pybind11::arg("delta"), pybind11::arg("h"),
-          pybind11::arg("x") = std::numeric_limits<double>::quiet_NaN(),
-          pybind11::arg("y") = std::numeric_limits<double>::quiet_NaN());
 }
