@@ -9,7 +9,7 @@
 #include <tuple>
 #include <vector>
 
-static inline int gid(int i, int j, int k, int n, int l) {
+static inline int index3d(int i, int j, int k, int n, int l) {
     return i * n * l + j * l + k;
 }
 
@@ -45,14 +45,14 @@ static SourceCell make_source_cell(int m, int n, int l, double h, double x, doub
         std::sqrt((x - ix1) * (x - ix1) + (y - jx1) * (y - jx1) + (z - kx0) * (z - kx0)) * h,
         std::sqrt((x - ix1) * (x - ix1) + (y - jx1) * (y - jx1) + (z - kx1) * (z - kx1)) * h};
     return {ix0, jx0, kx0, ix1, jx1, kx1,
-            {gid(ix0, jx0, kx0, n, l), gid(ix0, jx0, kx1, n, l),
-             gid(ix0, jx1, kx0, n, l), gid(ix0, jx1, kx1, n, l),
-             gid(ix1, jx0, kx0, n, l), gid(ix1, jx0, kx1, n, l),
-             gid(ix1, jx1, kx0, n, l), gid(ix1, jx1, kx1, n, l)},
+            {index3d(ix0, jx0, kx0, n, l), index3d(ix0, jx0, kx1, n, l),
+             index3d(ix0, jx1, kx0, n, l), index3d(ix0, jx1, kx1, n, l),
+             index3d(ix1, jx0, kx0, n, l), index3d(ix1, jx0, kx1, n, l),
+             index3d(ix1, jx1, kx0, n, l), index3d(ix1, jx1, kx1, n, l)},
             weights, distances};
 }
 
-static double calculate_unique_solution(double a1_, double a2_, double a3_, double f, double h) {
+static double godunov_update(double a1_, double a2_, double a3_, double f, double h) {
     double a1 = a1_, a2 = a2_, a3 = a3_;
     if (a1 > a2) std::swap(a1, a2);
     if (a1 > a3) std::swap(a1, a3);
@@ -70,7 +70,7 @@ static double calculate_unique_solution(double a1_, double a2_, double a3_, doub
     return x;
 }
 
-static void sweeping_over_I_J_K(
+static void forward_sweep(
     double *u, const double *f, int m, int n, int l, double h,
     int ix0, int jx0, int kx0, int ix1, int jx1, int kx1,
     int dirI, int dirJ, int dirK) {
@@ -87,8 +87,8 @@ static void sweeping_over_I_J_K(
                     (i == ix1 && j == jx1 && k == kx0) || (i == ix1 && j == jx1 && k == kx1))
                     continue;
 
-                auto U = [&](int ii, int jj, int kk) { return u[gid(ii, jj, kk, n, l)]; };
-                auto F = [&](int ii, int jj, int kk) { return f[gid(ii, jj, kk, n, l)]; };
+                auto U = [&](int ii, int jj, int kk) { return u[index3d(ii, jj, kk, n, l)]; };
+                auto F = [&](int ii, int jj, int kk) { return f[index3d(ii, jj, kk, n, l)]; };
 
                 double uxmin = i == 0 ? U(i + 1, j, k)
                                       : (i == m - 1 ? U(i - 1, j, k)
@@ -99,24 +99,24 @@ static void sweeping_over_I_J_K(
                 double uzmin = k == 0 ? U(i, j, k + 1)
                                       : (k == l - 1 ? U(i, j, k - 1)
                                                     : std::min(U(i, j, k + 1), U(i, j, k - 1)));
-                double u_new = calculate_unique_solution(uxmin, uymin, uzmin, F(i, j, k), h);
-                u[gid(i, j, k, n, l)] = std::min(u_new, u[gid(i, j, k, n, l)]);
+                double u_new = godunov_update(uxmin, uymin, uzmin, F(i, j, k), h);
+                u[index3d(i, j, k, n, l)] = std::min(u_new, u[index3d(i, j, k, n, l)]);
             }
 }
 
-static void sweeping(double *u, const double *f, int m, int n, int l, double h,
+static void sweep_all_directions(double *u, const double *f, int m, int n, int l, double h,
                      int ix0, int jx0, int kx0, int ix1, int jx1, int kx1) {
-    sweeping_over_I_J_K(u, f, m, n, l, h, ix0, jx0, kx0, ix1, jx1, kx1, 1, 1, 1);
-    sweeping_over_I_J_K(u, f, m, n, l, h, ix0, jx0, kx0, ix1, jx1, kx1, -1, 1, 1);
-    sweeping_over_I_J_K(u, f, m, n, l, h, ix0, jx0, kx0, ix1, jx1, kx1, -1, -1, 1);
-    sweeping_over_I_J_K(u, f, m, n, l, h, ix0, jx0, kx0, ix1, jx1, kx1, 1, -1, 1);
-    sweeping_over_I_J_K(u, f, m, n, l, h, ix0, jx0, kx0, ix1, jx1, kx1, 1, -1, -1);
-    sweeping_over_I_J_K(u, f, m, n, l, h, ix0, jx0, kx0, ix1, jx1, kx1, 1, 1, -1);
-    sweeping_over_I_J_K(u, f, m, n, l, h, ix0, jx0, kx0, ix1, jx1, kx1, -1, 1, -1);
-    sweeping_over_I_J_K(u, f, m, n, l, h, ix0, jx0, kx0, ix1, jx1, kx1, -1, -1, -1);
+    forward_sweep(u, f, m, n, l, h, ix0, jx0, kx0, ix1, jx1, kx1, 1, 1, 1);
+    forward_sweep(u, f, m, n, l, h, ix0, jx0, kx0, ix1, jx1, kx1, -1, 1, 1);
+    forward_sweep(u, f, m, n, l, h, ix0, jx0, kx0, ix1, jx1, kx1, -1, -1, 1);
+    forward_sweep(u, f, m, n, l, h, ix0, jx0, kx0, ix1, jx1, kx1, 1, -1, 1);
+    forward_sweep(u, f, m, n, l, h, ix0, jx0, kx0, ix1, jx1, kx1, 1, -1, -1);
+    forward_sweep(u, f, m, n, l, h, ix0, jx0, kx0, ix1, jx1, kx1, 1, 1, -1);
+    forward_sweep(u, f, m, n, l, h, ix0, jx0, kx0, ix1, jx1, kx1, -1, 1, -1);
+    forward_sweep(u, f, m, n, l, h, ix0, jx0, kx0, ix1, jx1, kx1, -1, -1, -1);
 }
 
-static void forward(double *u, const double *f, double h,
+static void solve_forward(double *u, const double *f, double h,
                     int m, int n, int l, double x, double y, double z, double tol = 1e-8) {
     const auto source = make_source_cell(m, n, l, h, x, y, z);
     const int ix0 = source.ix0, jx0 = source.jx0, kx0 = source.kx0;
@@ -125,7 +125,7 @@ static void forward(double *u, const double *f, double h,
 
     for (int i = 0; i < nn; ++i) u[i] = 100000.0;
 
-    auto F = [&](int ii, int jj, int kk) { return f[gid(ii, jj, kk, n, l)]; };
+    auto F = [&](int ii, int jj, int kk) { return f[index3d(ii, jj, kk, n, l)]; };
 
     double f000 = F(ix0, jx0, kx0);
     double f001 = F(ix0, jx0, kx1);
@@ -147,7 +147,7 @@ static void forward(double *u, const double *f, double h,
 
     auto set_corner = [&](int ii, int jj, int kk, double fcorner) {
         double d = std::sqrt((x - ii) * (x - ii) + (y - jj) * (y - jj) + (z - kk) * (z - kk)) * h;
-        u[gid(ii, jj, kk, n, l)] = (d / 6.0) * (fsrc + 4.0 * fmid + fcorner);
+        u[index3d(ii, jj, kk, n, l)] = (d / 6.0) * (fsrc + 4.0 * fmid + fcorner);
     };
 
     set_corner(ix0, jx0, kx0, f000);
@@ -162,7 +162,7 @@ static void forward(double *u, const double *f, double h,
     std::vector<double> u_old(nn);
     for (int it = 0; it < 20; ++it) {
         u_old.assign(u, u + nn);
-        sweeping(u, f, m, n, l, h, ix0, jx0, kx0, ix1, jx1, kx1);
+        sweep_all_directions(u, f, m, n, l, h, ix0, jx0, kx0, ix1, jx1, kx1);
         double err = 0.0;
         for (int j = 0; j < nn; ++j) err = std::max(std::fabs(u[j] - u_old[j]), err);
         if (err < tol) break;
@@ -180,15 +180,15 @@ static void upwind_split(double a, double &am, double &ap) {
 }
 
 // Ordinary bulk stencil for div(lambda grad(-T)) = delta with zero exterior flux.
-static double bulk_adjoint_stencil(const double *T, const double *lam, const double *delta,
+static double adjoint_update(const double *T, const double *lam, const double *delta,
                                    int m, int n, int l, int i, int j, int k, double h) {
     auto T_at = [&](int ii, int jj, int kk) -> double {
         if (ii < 0 || ii >= m || jj < 0 || jj >= n || kk < 0 || kk >= l) return 0.0;
-        return T[gid(ii, jj, kk, n, l)];
+        return T[index3d(ii, jj, kk, n, l)];
     };
     auto L_at = [&](int ii, int jj, int kk) -> double {
         if (ii < 0 || ii >= m || jj < 0 || jj >= n || kk < 0 || kk >= l) return 0.0;
-        return lam[gid(ii, jj, kk, n, l)];
+        return lam[index3d(ii, jj, kk, n, l)];
     };
 
     double a1m = 0.0, a1p = 0.0, a2m = 0.0, a2p = 0.0;
@@ -235,10 +235,10 @@ static double bulk_adjoint_stencil(const double *T, const double *lam, const dou
          (b1p * L_at(i, j - 1, k) - b2m * L_at(i, j + 1, k)) / h +
          (c1p * L_at(i, j, k - 1) - c2m * L_at(i, j, k + 1)) / h);
 
-    return (delta[gid(i, j, k, n, l)] + hadj) / coe;
+    return (delta[index3d(i, j, k, n, l)] + hadj) / coe;
 }
 
-static void sweep_bulk_adjoint(double *lam, const double *T, const double *delta,
+static void adjoint_sweep(double *lam, const double *T, const double *delta,
                                  int m, int n, int l, double h,
                                  int dirI, int dirJ, int dirK) {
     auto I = std::make_tuple(dirI == 1 ? 0 : m - 1, dirI == 1 ? m : -1, dirI);
@@ -248,11 +248,11 @@ static void sweep_bulk_adjoint(double *lam, const double *T, const double *delta
     for (int i = std::get<0>(I); i != std::get<1>(I); i += std::get<2>(I))
         for (int j = std::get<0>(J); j != std::get<1>(J); j += std::get<2>(J))
             for (int k = std::get<0>(K); k != std::get<1>(K); k += std::get<2>(K))
-                lam[gid(i, j, k, n, l)] =
-                    bulk_adjoint_stencil(T, lam, delta, m, n, l, i, j, k, h);
+                lam[index3d(i, j, k, n, l)] =
+                    adjoint_update(T, lam, delta, m, n, l, i, j, k, h);
 }
 
-static void solve_bulk_adjoint(double *lambda, const double *T, const double *delta,
+static void solve_adjoint(double *lambda, const double *T, const double *delta,
                                      int m, int n, int l, double h,
                                      int max_iter = 200, double tol = 1e-6) {
     const int nn = m * n * l;
@@ -261,14 +261,14 @@ static void solve_bulk_adjoint(double *lambda, const double *T, const double *de
 
     for (int it = 0; it < max_iter; ++it) {
         lam_old.assign(lambda, lambda + nn);
-        sweep_bulk_adjoint(lambda, T, delta, m, n, l, h, 1, 1, 1);
-        sweep_bulk_adjoint(lambda, T, delta, m, n, l, h, -1, 1, 1);
-        sweep_bulk_adjoint(lambda, T, delta, m, n, l, h, -1, -1, 1);
-        sweep_bulk_adjoint(lambda, T, delta, m, n, l, h, 1, -1, 1);
-        sweep_bulk_adjoint(lambda, T, delta, m, n, l, h, 1, -1, -1);
-        sweep_bulk_adjoint(lambda, T, delta, m, n, l, h, 1, 1, -1);
-        sweep_bulk_adjoint(lambda, T, delta, m, n, l, h, -1, 1, -1);
-        sweep_bulk_adjoint(lambda, T, delta, m, n, l, h, -1, -1, -1);
+        adjoint_sweep(lambda, T, delta, m, n, l, h, 1, 1, 1);
+        adjoint_sweep(lambda, T, delta, m, n, l, h, -1, 1, 1);
+        adjoint_sweep(lambda, T, delta, m, n, l, h, -1, -1, 1);
+        adjoint_sweep(lambda, T, delta, m, n, l, h, 1, -1, 1);
+        adjoint_sweep(lambda, T, delta, m, n, l, h, 1, -1, -1);
+        adjoint_sweep(lambda, T, delta, m, n, l, h, 1, 1, -1);
+        adjoint_sweep(lambda, T, delta, m, n, l, h, -1, 1, -1);
+        adjoint_sweep(lambda, T, delta, m, n, l, h, -1, -1, -1);
 
         double err = 0.0;
         for (int idx = 0; idx < nn; ++idx)
@@ -311,23 +311,23 @@ static std::array<double, 8> source_adjoint(
         for (int j = std::max(0, jx0 - 1); j <= std::min(n - 1, jx1 + 1); ++j) {
             for (int k = std::max(0, kx0 - 1); k <= std::min(l - 1, kx1 + 1); ++k) {
                 if (is_source_corner(i, j, k, ix0, jx0, kx0, ix1, jx1, kx1)) continue;
-                const int row = gid(i, j, k, n, l);
-                const auto U = [&](int ii, int jj, int kk) { return u[gid(ii, jj, kk, n, l)]; };
+                const int row = index3d(i, j, k, n, l);
+                const auto U = [&](int ii, int jj, int kk) { return u[index3d(ii, jj, kk, n, l)]; };
                 const double uxmin = i == 0 ? U(i + 1, j, k)
                     : (i == m - 1 ? U(i - 1, j, k) : std::min(U(i + 1, j, k), U(i - 1, j, k)));
                 const double uymin = j == 0 ? U(i, j + 1, k)
                     : (j == n - 1 ? U(i, j - 1, k) : std::min(U(i, j + 1, k), U(i, j - 1, k)));
                 const double uzmin = k == 0 ? U(i, j, k + 1)
                     : (k == l - 1 ? U(i, j, k - 1) : std::min(U(i, j, k + 1), U(i, j, k - 1)));
-                const int idx = i == 0 ? gid(i + 1, j, k, n, l)
-                    : (i == m - 1 ? gid(i - 1, j, k, n, l)
-                    : (U(i + 1, j, k) > U(i - 1, j, k) ? gid(i - 1, j, k, n, l) : gid(i + 1, j, k, n, l)));
-                const int idy = j == 0 ? gid(i, j + 1, k, n, l)
-                    : (j == n - 1 ? gid(i, j - 1, k, n, l)
-                    : (U(i, j + 1, k) > U(i, j - 1, k) ? gid(i, j - 1, k, n, l) : gid(i, j + 1, k, n, l)));
-                const int idz = k == 0 ? gid(i, j, k + 1, n, l)
-                    : (k == l - 1 ? gid(i, j, k - 1, n, l)
-                    : (U(i, j, k + 1) > U(i, j, k - 1) ? gid(i, j, k - 1, n, l) : gid(i, j, k + 1, n, l)));
+                const int idx = i == 0 ? index3d(i + 1, j, k, n, l)
+                    : (i == m - 1 ? index3d(i - 1, j, k, n, l)
+                    : (U(i + 1, j, k) > U(i - 1, j, k) ? index3d(i - 1, j, k, n, l) : index3d(i + 1, j, k, n, l)));
+                const int idy = j == 0 ? index3d(i, j + 1, k, n, l)
+                    : (j == n - 1 ? index3d(i, j - 1, k, n, l)
+                    : (U(i, j + 1, k) > U(i, j - 1, k) ? index3d(i, j - 1, k, n, l) : index3d(i, j + 1, k, n, l)));
+                const int idz = k == 0 ? index3d(i, j, k + 1, n, l)
+                    : (k == l - 1 ? index3d(i, j, k - 1, n, l)
+                    : (U(i, j, k + 1) > U(i, j, k - 1) ? index3d(i, j, k - 1, n, l) : index3d(i, j, k + 1, n, l)));
                 const auto subtract = [&](int id, double coefficient) {
                     const int corner = corner_index(id);
                     if (corner >= 0) result[corner] -= coefficient * lambda[row] * lambda_scale;
@@ -342,7 +342,7 @@ static std::array<double, 8> source_adjoint(
 }
 
 // Hybrid backward: FSM + src correction on source corners only.
-static void backward(
+static void solve_backward(
     double *grad_f, const double *grad_u, const double *u, const double *f, double h,
     int m, int n, int l, double x, double y, double z) {
     const int nn = m * n * l;
@@ -353,7 +353,7 @@ static void backward(
     for (int i = 0; i < nn; ++i) delta[i] = grad_u[i] / vol;
 
     std::vector<double> lambda(nn);
-    solve_bulk_adjoint(lambda.data(), u, delta.data(), m, n, l, h);
+    solve_adjoint(lambda.data(), u, delta.data(), m, n, l, h);
 
     for (int i = 0; i < nn; ++i) grad_f[i] = lambda[i] * f[i] * vol;
 
@@ -376,7 +376,7 @@ torch::Tensor eikonal_forward(torch::Tensor f, double h, double x, double y, dou
     int l = f.size(2);
 
     auto u = torch::zeros_like(f);
-    forward(u.data_ptr<double>(), f.data_ptr<double>(), h, m, n, l, x, y, z);
+    solve_forward(u.data_ptr<double>(), f.data_ptr<double>(), h, m, n, l, x, y, z);
     return u;
 }
 
@@ -392,7 +392,7 @@ torch::Tensor eikonal_backward(torch::Tensor grad_u, torch::Tensor u, torch::Ten
     int l = u.size(2);
 
     auto grad_f = torch::zeros_like(f);
-    backward(grad_f.data_ptr<double>(), grad_u.data_ptr<double>(), u.data_ptr<double>(),
+    solve_backward(grad_f.data_ptr<double>(), grad_u.data_ptr<double>(), u.data_ptr<double>(),
              f.data_ptr<double>(), h, m, n, l, x, y, z);
     return grad_f;
 }
