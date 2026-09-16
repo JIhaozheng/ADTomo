@@ -110,8 +110,7 @@ python 00_gen_velocity.py
 python 01_gen_stations.py
 python 02_gen_events.py
 python 03_gen_picks.py
-python 04_forward.py
-python 05_inversion.py
+python 04_inversion.py
 ```
 
 Catalog files are written to `examples/data/`; the inversion writes one final

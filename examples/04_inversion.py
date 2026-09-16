@@ -98,25 +98,31 @@ tomography = Tomography(
     alpha_vp=ALPHA_VP,
     alpha_vs=ALPHA_VS,
 )
-optimizer = torch.optim.Adam([p for p in tomography.parameters() if p.requires_grad], lr=0.03)
+num_iterations = 30
+learning_rate = 0.03
+optimizer = torch.optim.Adam([parameter for parameter in tomography.parameters() if parameter.requires_grad], lr=learning_rate)
 data_loss_history = []
 total_loss_history = []
-for iteration in range(31):
+for iteration in range(num_iterations):
     optimizer.zero_grad()
     loss = tomography(groups)
-    data_loss_history.append(tomography.data_loss.item())
-    total_loss_history.append(tomography.total_loss.item())
     if iteration == 0:
         initial_loss = tomography.data_loss.item()
-    if iteration < 30:
-        loss.backward()
-        optimizer.step()
-    if iteration % 5 == 0 or iteration == 30:
+    data_loss_history.append(tomography.data_loss.item())
+    total_loss_history.append(loss.item())
+    loss.backward()
+    optimizer.step()
+    if (iteration + 1) % 5 == 0:
         print(
-            f"iteration {iteration:02d} total={loss.item():.6f} data={tomography.data_loss.item():.6f} "
+            f"iteration {iteration + 1:02d}/{num_iterations} total={loss.item():.6f} data={tomography.data_loss.item():.6f} "
             f"smooth_vp={tomography.smooth_vp.item():.6f} smooth_vs={tomography.smooth_vs.item():.6f} "
             f"damp_vp={tomography.damp_vp.item():.6f} damp_vs={tomography.damp_vs.item():.6f}"
         )
+
+with torch.no_grad():
+    final_loss = tomography(groups)
+data_loss_history.append(tomography.data_loss.item())
+total_loss_history.append(final_loss.item())
 
 RESULTS.mkdir(exist_ok=True)
 torch.save(
