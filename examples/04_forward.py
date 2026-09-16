@@ -21,11 +21,11 @@ station = stations_by_id.loc[station_id]
 station_picks = picks[(picks.station_id == station_id) & (picks.phase_type == "P")]
 station_event_ids = pd.unique(station_picks.event_id)
 station_events = events_by_id.loc[station_event_ids]
-station_lonlatdepth = torch.tensor([station.longitude, station.latitude, station.depth_km], dtype=torch.float64)
-event_lonlatdepth = torch.tensor(
+station_spherical = torch.tensor([station.longitude, station.latitude, station.depth_km], dtype=torch.float64)
+events_spherical = torch.tensor(
     station_events[["longitude", "latitude", "depth_km"]].values, dtype=torch.float64
 )
-grid = ForwardGrid(station_lonlatdepth, event_lonlatdepth, model, spacing=5.0)
+grid = ForwardGrid(station_spherical, events_spherical, model, spacing=5.0)
 
 grid_event_indices = torch.tensor(pd.Index(station_event_ids).get_indexer(station_picks.event_id), dtype=torch.long)
 catalog_event_time = pd.to_datetime(station_picks.event_id.map(events_by_id.event_time))
@@ -33,7 +33,7 @@ observed_phase_dt = torch.tensor(
     (pd.to_datetime(station_picks.phase_time) - catalog_event_time).dt.total_seconds().to_numpy(), dtype=torch.float64
 )
 
-local_velocity = grid.sample(model.vp)
+local_velocity = grid.sample_model(model.vp)
 traveltime_field = solve_eikonal3d(local_velocity, grid.station_index, grid.spacing)
 travel_time = grid.sample_events(traveltime_field, event_indices=grid_event_indices)
 predicted_phase_dt = travel_time

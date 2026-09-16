@@ -12,14 +12,14 @@ DATA = Path("data")
 model = VelocityModel(**torch.load(DATA / "model_true.pt", weights_only=True), trainable=False)
 stations = pd.read_csv(DATA / "stations.csv", dtype={"station_id": str})
 events = pd.read_csv(DATA / "events.csv", dtype={"event_id": str})
-event_lonlatdepth = torch.tensor(events[["longitude", "latitude", "depth_km"]].values, dtype=torch.float64)
+events_spherical = torch.tensor(events[["longitude", "latitude", "depth_km"]].values, dtype=torch.float64)
 picks = []
 with torch.no_grad():
     for _, station in stations.iterrows():
-        station_lonlatdepth = torch.tensor(
+        station_spherical = torch.tensor(
             [station.longitude, station.latitude, station.depth_km], dtype=torch.float64
         )
-        grid = ForwardGrid(station_lonlatdepth, event_lonlatdepth, model, spacing=5.0)
+        grid = ForwardGrid(station_spherical, events_spherical, model, spacing=5.0)
         for phase in ("P", "S"):
             travel_times = predict_travel_times(model, grid, phase)
             for event, travel_time in zip(events.itertuples(index=False), travel_times.tolist()):

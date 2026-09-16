@@ -18,11 +18,11 @@ FIGURES = Path("figures")
 FIGURES.mkdir(exist_ok=True)
 
 # Spherical/ECEF and station-local END coordinate checks.
-coordinate_station_lonlatdepth = torch.tensor([-120.0, 35.0, 0.0], dtype=torch.float64)
-coordinate_event_lonlatdepth = torch.tensor(
+coordinate_station_spherical = torch.tensor([-120.0, 35.0, 0.0], dtype=torch.float64)
+coordinate_events_spherical = torch.tensor(
     [[-120.18, 34.90, 8.0], [-119.82, 35.08, 12.0], [-120.06, 35.22, 16.0]], dtype=torch.float64
 )
-coordinate_points_lonlatdepth = torch.cat([coordinate_station_lonlatdepth[None], coordinate_event_lonlatdepth], dim=0)
+coordinate_points_lonlatdepth = torch.cat([coordinate_station_spherical[None], coordinate_events_spherical], dim=0)
 coordinate_points_ecef = spherical_to_ecef(
     coordinate_points_lonlatdepth[:, 0], coordinate_points_lonlatdepth[:, 1], coordinate_points_lonlatdepth[:, 2]
 )
@@ -31,7 +31,7 @@ assert torch.allclose(
     torch.stack([coordinate_lon, coordinate_lat, coordinate_depth], dim=-1), coordinate_points_lonlatdepth, atol=1e-10
 )
 
-coordinate_basis = local_basis(coordinate_station_lonlatdepth[0], coordinate_station_lonlatdepth[1])
+coordinate_basis = local_basis(coordinate_station_spherical[0], coordinate_station_spherical[1])
 assert torch.allclose(coordinate_basis @ coordinate_basis.T, torch.eye(3, dtype=torch.float64), atol=1e-12)
 coordinate_event_local = ecef_to_local(coordinate_points_ecef[1:], coordinate_points_ecef[0], coordinate_basis)
 coordinate_event_ecef_roundtrip = local_to_ecef(coordinate_event_local, coordinate_points_ecef[0], coordinate_basis)
@@ -47,13 +47,13 @@ depth_grid, lat_grid, lon_grid = torch.meshgrid(depth, lat, lon, indexing="ij")
 vp = torch.full((len(depth), len(lat), len(lon)), 6.0, dtype=torch.float64)
 model = VelocityModel(lon, lat, depth, vp, vp / 1.73, trainable=False)
 
-station_lonlatdepth = torch.tensor([-120.0, 35.0, 0.0], dtype=torch.float64)
-event_lonlatdepth = torch.tensor([[-119.9, 35.1, 8.0]], dtype=torch.float64)
-grid = ForwardGrid(station_lonlatdepth, event_lonlatdepth, model, spacing=5.0)
+station_spherical = torch.tensor([-120.0, 35.0, 0.0], dtype=torch.float64)
+events_spherical = torch.tensor([[-119.9, 35.1, 8.0]], dtype=torch.float64)
+grid = ForwardGrid(station_spherical, events_spherical, model, spacing=5.0)
 
 # This asymmetric linear field exposes both interpolation and axis-order errors.
 global_field = 0.01 * depth_grid + 0.1 * lat_grid + lon_grid
-local_field = grid.sample(global_field)
+local_field = grid.sample_model(global_field)
 sample_coordinates = grid.sample_grid[0]
 local_lon = model.lon[0] + (sample_coordinates[..., 0] + 1) * (model.lon[-1] - model.lon[0]) / 2
 local_lat = model.lat[0] + (sample_coordinates[..., 1] + 1) * (model.lat[-1] - model.lat[0]) / 2

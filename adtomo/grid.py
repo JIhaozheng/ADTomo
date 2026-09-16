@@ -81,15 +81,15 @@ class ForwardGrid:
     ``(x_local, y_local, z_local)`` = ``(East, North, Down)``.
     """
 
-    def __init__(self, station_lonlatdepth, event_lonlatdepth, model, spacing):
+    def __init__(self, station_spherical, events_spherical, model, spacing):
         self.spacing = float(spacing)
         ref = model.vp
-        station_lonlatdepth = torch.as_tensor(station_lonlatdepth, dtype=ref.dtype, device=ref.device).reshape(3)
-        event_lonlatdepth = torch.as_tensor(event_lonlatdepth, dtype=ref.dtype, device=ref.device).reshape(-1, 3)
-        station_ecef = spherical_to_ecef(*station_lonlatdepth)
-        basis = local_basis(station_lonlatdepth[0], station_lonlatdepth[1])
+        station_spherical = torch.as_tensor(station_spherical, dtype=ref.dtype, device=ref.device).reshape(3)
+        events_spherical = torch.as_tensor(events_spherical, dtype=ref.dtype, device=ref.device).reshape(-1, 3)
+        station_ecef = spherical_to_ecef(*station_spherical)
+        basis = local_basis(station_spherical[0], station_spherical[1])
         event_ecef = spherical_to_ecef(
-            event_lonlatdepth[:, 0], event_lonlatdepth[:, 1], event_lonlatdepth[:, 2]
+            events_spherical[:, 0], events_spherical[:, 1], events_spherical[:, 2]
         )
         station_local = torch.zeros(3, dtype=ref.dtype, device=ref.device)
         event_local = ecef_to_local(event_ecef, station_ecef, basis)
@@ -103,7 +103,7 @@ class ForwardGrid:
         self.z = low[2] + torch.arange(nxyz[2], dtype=ref.dtype, device=ref.device) * self.spacing
         self.shape = (len(self.z), len(self.y), len(self.x))
         self.station_index = (station_local - low) / self.spacing
-        self.event_index = (event_local - low) / self.spacing
+        self.events_index = (event_local - low) / self.spacing
 
         z_local, y_local, x_local = torch.meshgrid(self.z, self.y, self.x, indexing="ij")
         xyz_local = torch.stack([x_local, y_local, z_local], dim=-1)
@@ -128,7 +128,7 @@ class ForwardGrid:
                     f"but model provides [{axis[0].item():.4f}, {axis[-1].item():.4f}]"
                 )
 
-    def sample(self, field):
+    def sample_model(self, field):
         """Differentiably sample a global ``(depth, latitude, longitude)`` field."""
         return F.grid_sample(
             field[None, None], self.sample_grid, mode="bilinear", padding_mode="border", align_corners=True
@@ -136,7 +136,7 @@ class ForwardGrid:
 
     def sample_events(self, traveltime, event_indices=None):
         """Sample a local ``(z_local, y_local, x_local)`` field at events."""
-        index = self.event_index
+        index = self.events_index
         if event_indices is not None:
             index = index[event_indices]
         nx, ny, nz = len(self.x), len(self.y), len(self.z)

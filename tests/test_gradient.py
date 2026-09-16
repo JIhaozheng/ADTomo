@@ -27,12 +27,12 @@ lon = torch.arange(-120.8, -119.19, 0.1, dtype=torch.float64)
 lat = torch.arange(34.2, 35.81, 0.1, dtype=torch.float64)
 depth = torch.arange(-15.0, 50.1, 5.0, dtype=torch.float64)
 vp = torch.full((len(depth), len(lat), len(lon)), 6.0, dtype=torch.float64)
-station_lonlatdepth = torch.tensor([-120.0, 35.0, 0.0], dtype=torch.float64)
-event_lonlatdepth = torch.tensor([[-119.9, 35.1, 10.0]], dtype=torch.float64)
+station_spherical = torch.tensor([-120.0, 35.0, 0.0], dtype=torch.float64)
+events_spherical = torch.tensor([[-119.9, 35.1, 10.0]], dtype=torch.float64)
 
 # Full global-Vp chain: sampling, solver, event interpolation, loss.
 taylor_model = VelocityModel(lon, lat, depth, vp, vp / 1.73, trainable=True)
-taylor_grid = ForwardGrid(station_lonlatdepth, event_lonlatdepth, taylor_model, spacing=5.0)
+taylor_grid = ForwardGrid(station_spherical, events_spherical, taylor_model, spacing=5.0)
 global_direction = torch.linspace(-0.01, 0.01, taylor_model.vp.numel(), dtype=torch.float64).reshape_as(taylor_model.vp)
 
 
@@ -63,7 +63,7 @@ assert 1.7 < sorted(full_slopes)[len(full_slopes) // 2] < 2.3
 
 # Regularized tomography objective: smoothness applies to perturbations only.
 objective_model = VelocityModel(lon, lat, depth, vp, vp / 1.73, trainable=True)
-objective_grid = ForwardGrid(station_lonlatdepth, event_lonlatdepth, objective_model, spacing=5.0)
+objective_grid = ForwardGrid(station_spherical, events_spherical, objective_model, spacing=5.0)
 station_groups = [
     (
         objective_grid,

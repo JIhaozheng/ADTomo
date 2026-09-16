@@ -123,7 +123,7 @@ model and `inversion_progress.png` to `examples/results/`.
 The complete forward path stays visible:
 
 ```python
-grid = ForwardGrid(station_lonlatdepth, event_lonlatdepth, model, spacing=5.0)
+grid = ForwardGrid(station_spherical, events_spherical, model, spacing=5.0)
 predicted_phase_dt = predict_travel_times(model, grid, "P")
 loss = ((predicted_phase_dt - observed_phase_dt) ** 2).mean()
 loss.backward()

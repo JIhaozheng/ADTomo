@@ -26,11 +26,11 @@ def prepare_pick_groups(stations, events, picks, model):
         station = stations_by_id.loc[station_id]
         station_event_ids = pd.unique(station_picks.event_id)
         station_events = events_by_id.loc[station_event_ids]
-        station_lonlatdepth = torch.tensor([station.longitude, station.latitude, station.depth_km], dtype=torch.float64)
-        event_lonlatdepth = torch.tensor(
+        station_spherical = torch.tensor([station.longitude, station.latitude, station.depth_km], dtype=torch.float64)
+        events_spherical = torch.tensor(
             station_events[["longitude", "latitude", "depth_km"]].values, dtype=torch.float64
         )
-        grid = ForwardGrid(station_lonlatdepth, event_lonlatdepth, model, spacing=5.0)
+        grid = ForwardGrid(station_spherical, events_spherical, model, spacing=5.0)
 
         phase_groups = []
         for phase, phase_picks in station_picks.groupby("phase_type", sort=False):
