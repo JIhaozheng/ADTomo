@@ -23,12 +23,12 @@ class _Eikonal3DFunction(torch.autograd.Function):
         return grad_slowness, None, None, None, None
 
 
-def solve_eikonal3d(velocity_xyz, source_xyz, spacing):
+def solve_eikonal3d(velocity, source, spacing):
     """Solve the local 3-D eikonal equation for velocity in km/s.
 
     Local fields and source locations both use ``(x_local, y_local, z_local)``
     = ``(East, North, Down)``.
     """
-    source_xyz = torch.as_tensor(source_xyz, dtype=velocity_xyz.dtype, device=velocity_xyz.device)
-    slowness_xyz = (1.0 / velocity_xyz).contiguous()
-    return _Eikonal3DFunction.apply(slowness_xyz, float(spacing), *source_xyz.tolist())
+    source = torch.as_tensor(source, dtype=velocity.dtype, device=velocity.device)
+    slowness = (1.0 / velocity).contiguous()
+    return _Eikonal3DFunction.apply(slowness, float(spacing), *source.tolist())
