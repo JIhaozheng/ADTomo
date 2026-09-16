@@ -8,7 +8,6 @@
 *.json
 *.egg
 
-adtomo/eigen
 build/
 __pycache__
 .DS_Store
