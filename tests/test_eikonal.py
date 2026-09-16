@@ -1,4 +1,5 @@
 from pathlib import Path
+import math
 
 import matplotlib.pyplot as plt
 import torch
@@ -24,6 +25,25 @@ analytic_2d = torch.hypot(x_local - source_xy[0] * spacing_km, y_local - source_
 difference_2d = traveltime_2d - analytic_2d
 assert torch.isfinite(traveltime_2d).all()
 assert difference_2d.abs().max() < 1.5 * spacing_km / velocity_km_s
+
+# Regression for the 2-D source-cell adjoint: both aligned and fractional
+# sources must retain a second-order directional Taylor remainder.
+for source in ((25.0, 20.0), (25.2, 20.3), (25.1, 20.15)):
+    taylor_velocity = torch.full_like(velocity_yx, velocity_km_s, requires_grad=True)
+    direction = torch.linspace(-0.02, 0.02, taylor_velocity.numel(), dtype=torch.float64).reshape_as(taylor_velocity)
+    objective = solve_eikonal2d(taylor_velocity, torch.tensor(source, dtype=torch.float64), spacing_km)[35, 40]
+    objective.backward()
+    derivative = (taylor_velocity.grad * direction).sum().item()
+    remainders = []
+    for epsilon in (1e-2, 1e-3):
+        perturbed = solve_eikonal2d(
+            taylor_velocity.detach() + epsilon * direction,
+            torch.tensor(source, dtype=torch.float64),
+            spacing_km,
+        )[35, 40]
+        remainders.append(abs(perturbed.item() - objective.item() - epsilon * derivative))
+    slope = math.log(remainders[1] / remainders[0]) / math.log(0.1)
+    assert 1.8 < slope < 2.2
 
 velocity_zyx = torch.full((21, 31, 41), velocity_km_s, dtype=torch.float64)
 source_xyz = torch.tensor([20.2, 15.3, 10.1], dtype=torch.float64)

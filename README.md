@@ -128,3 +128,19 @@ predicted_phase_dt = predict_travel_times(model, grid, "P")
 loss = ((predicted_phase_dt - observed_phase_dt) ** 2).mean()
 loss.backward()
 ```
+
+## Source-correction experiment
+
+`experiments/source_correction/` is an isolated numerical comparison of the
+3-D source-correction backward treatment. It builds temporary `full`, `no_lu`,
+and `bulk_only` extensions without modifying the production C++ solver,
+`ForwardGrid`, or package build. See its README for the command and generated
+Taylor-test, gradient-difference, runtime, and plot artifacts.
+
+The production 3-D backward uses the ordinary continuous-adjoint bulk sweep,
+then an explicit eight-corner residual balance and the transpose of the
+source-cell Simpson initialization. This replaces the former 3-D local Eigen
+LU solve; the retained component experiment validates it against that reference.
+The retained 2-D solver uses the analogous ordinary bulk sweep, explicit
+four-corner balance, and Simpson transpose; its aligned and fractional-source
+Taylor checks live in `tests/test_eikonal.py`.
