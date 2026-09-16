@@ -46,7 +46,7 @@ for source in ((25.0, 20.0), (25.2, 20.3), (25.1, 20.15)):
     assert 1.8 < slope < 2.2
 
 velocity_dne = torch.full((21, 31, 41), velocity_km_s, dtype=torch.float64)
-source_xyz = torch.tensor([20.2, 15.3, 10.1], dtype=torch.float64)
+source_xyz = torch.tensor([20.2, 15.3, 0.0], dtype=torch.float64)
 traveltime_3d = solve_eikonal3d(velocity_dne, source_xyz, spacing_km)
 z_local, y_local, x_local = torch.meshgrid(
     torch.arange(velocity_dne.shape[0], dtype=torch.float64) * spacing_km,
@@ -63,7 +63,7 @@ difference_3d = traveltime_3d - analytic_3d
 assert torch.isfinite(traveltime_3d).all()
 assert difference_3d.abs().max() < 2.0 * spacing_km / velocity_km_s
 
-source_z_index = round(source_xyz[2].item())
+source_z_index = 0
 rows = [
     (traveltime_2d, analytic_2d, difference_2d, source_xy, "2-D"),
     (
@@ -71,7 +71,7 @@ rows = [
         analytic_3d[source_z_index],
         difference_3d[source_z_index],
         source_xyz[:2],
-        f"3-D at Down={source_z_index} km",
+        "3-D at the top boundary",
     ),
 ]
 figure = plt.figure(figsize=(12, 7))

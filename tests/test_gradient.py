@@ -11,32 +11,47 @@ from adtomo import ForwardGrid, Tomography, VelocityModel, predict_travel_times,
 FIGURES = Path("figures")
 FIGURES.mkdir(exist_ok=True)
 
-# Isolated C++ eikonal Taylor check.
+# Top-boundary source regression: source z=0 uses iz0=0 and iz1=1.
 taylor_velocity = torch.full((4, 5, 6), 5.0, dtype=torch.float64, requires_grad=True)
 taylor_direction = torch.linspace(-0.2, 0.2, taylor_velocity.numel(), dtype=torch.float64).reshape_as(taylor_velocity)
-taylor_objective = solve_eikonal3d(taylor_velocity, (1.2, 1.3, 1.1), 1.0)[3, 4, 5]
+top_source = (1.2, 1.3, 0.0)
+taylor_objective = solve_eikonal3d(taylor_velocity, top_source, 1.0)[3, 4, 5]
 taylor_objective.backward()
 taylor_derivative = (taylor_velocity.grad * taylor_direction).sum().item()
+kernel_epsilons = (1e-2, 5e-3, 2.5e-3, 1.25e-3)
+kernel_changes = []
 kernel_remainders = []
-for epsilon in (1e-2, 1e-3):
-    perturbed = solve_eikonal3d(taylor_velocity.detach() + epsilon * taylor_direction, (1.2, 1.3, 1.1), 1.0)[3, 4, 5]
+for epsilon in kernel_epsilons:
+    perturbed = solve_eikonal3d(taylor_velocity.detach() + epsilon * taylor_direction, top_source, 1.0)[3, 4, 5]
+    kernel_changes.append(abs(perturbed.item() - taylor_objective.item()))
     kernel_remainders.append(abs(perturbed.item() - taylor_objective.item() - epsilon * taylor_derivative))
-kernel_slope = math.log(kernel_remainders[1] / kernel_remainders[0]) / math.log(1e-3 / 1e-2)
-assert 1.8 < kernel_slope < 2.2
+kernel_change_slopes = [
+    math.log(right / left) / math.log(next_epsilon / epsilon)
+    for left, right, epsilon, next_epsilon in zip(
+        kernel_changes, kernel_changes[1:], kernel_epsilons, kernel_epsilons[1:]
+    )
+]
+kernel_slopes = [
+    math.log(right / left) / math.log(next_epsilon / epsilon)
+    for left, right, epsilon, next_epsilon in zip(
+        kernel_remainders, kernel_remainders[1:], kernel_epsilons, kernel_epsilons[1:]
+    )
+]
+assert 0.8 < statistics.median(kernel_change_slopes) < 1.2
+assert 1.8 < statistics.median(kernel_slopes) < 2.2
 
 # Each source-cell corner uses the discrete source adjoint and Simpson chain rule.
 source_corner_errors = []
-source = (1.2, 1.3, 1.1)
 finite_difference_step = 1e-4
 for i in (1, 2):
     for j in (1, 2):
-        for k in (1, 2):
+        for k in (0, 1):
             plus = taylor_velocity.detach().clone()
             minus = taylor_velocity.detach().clone()
             plus[k, j, i] += finite_difference_step
             minus[k, j, i] -= finite_difference_step
-            plus_objective = solve_eikonal3d(plus, source, 1.0)[3, 4, 5]
-            minus_objective = solve_eikonal3d(minus, source, 1.0)[3, 4, 5]
+            plus_objective = solve_eikonal3d(plus, top_source, 1.0)[3, 4, 5]
+            minus_objective = solve_eikonal3d(minus, top_source, 1.0)[3, 4, 5]
             finite_difference = (plus_objective - minus_objective).item() / (2.0 * finite_difference_step)
             adjoint = taylor_velocity.grad[k, j, i].item()
             source_corner_errors.append(abs(adjoint - finite_difference) / (abs(finite_difference) + 1e-12))
@@ -53,6 +68,8 @@ events_spherical = torch.tensor([[-119.9, 35.1, 10.0]], dtype=torch.float64)
 # Full global-Vp chain: sampling, solver, event interpolation, loss.
 taylor_model = VelocityModel(lon, lat, depth, vp, vp / 1.73, trainable=True)
 taylor_grid = ForwardGrid(station_spherical, events_spherical, taylor_model, spacing=5.0)
+assert taylor_grid.z[0].item() == 0.0
+assert taylor_grid.station_index[2].item() == 0.0
 global_direction = torch.linspace(-0.01, 0.01, taylor_model.vp.numel(), dtype=torch.float64).reshape_as(taylor_model.vp)
 
 

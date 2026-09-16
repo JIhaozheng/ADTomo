@@ -1,4 +1,5 @@
 from pathlib import Path
+import math
 
 import matplotlib.pyplot as plt
 import torch
@@ -50,6 +51,25 @@ model = VelocityModel(lon, lat, depth, vp, vp / 1.73, trainable=False)
 station_spherical = torch.tensor([-120.0, 35.0, 0.0], dtype=torch.float64)
 events_spherical = torch.tensor([[-119.9, 35.1, 8.0]], dtype=torch.float64)
 grid = ForwardGrid(station_spherical, events_spherical, model, spacing=5.0)
+padding = 2.0 * grid.spacing
+assert grid.z[0].item() == 0.0
+assert grid.station_index[2].item() == 0.0
+assert torch.all(grid.z >= 0.0)
+assert grid.z[-1] - grid.events_index[:, 2].max() * grid.spacing >= padding
+old_nz = math.ceil(float(grid.events_index[:, 2].max()) + 4.0) + 1
+assert len(grid.z) == old_nz - 2
+
+try:
+    ForwardGrid(
+        station_spherical,
+        torch.tensor([[-120.0, 35.0, -1.0]], dtype=torch.float64),
+        model,
+        spacing=5.0,
+    )
+except ValueError as error:
+    assert "station is the top boundary" in str(error)
+else:
+    raise AssertionError("an event above the station must be rejected")
 
 # This asymmetric linear field exposes both interpolation and axis-order errors.
 global_field = 0.01 * depth_grid + 0.1 * lat_grid + lon_grid
