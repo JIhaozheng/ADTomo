@@ -34,13 +34,13 @@ def prepare_pick_groups(stations, events, picks, model):
 
         phase_groups = []
         for phase, phase_picks in station_picks.groupby("phase_type", sort=False):
-            grid_event_indices = torch.tensor(pd.Index(station_event_ids).get_indexer(phase_picks.event_id), dtype=torch.long)
+            event_indices = torch.tensor(pd.Index(station_event_ids).get_indexer(phase_picks.event_id), dtype=torch.long)
             catalog_event_time = pd.to_datetime(phase_picks.event_id.map(events_by_id.event_time))
             phase_dt = torch.tensor(
                 (pd.to_datetime(phase_picks.phase_time) - catalog_event_time).dt.total_seconds().to_numpy(),
                 dtype=torch.float64,
             )
-            phase_groups.append((phase, grid_event_indices, phase_dt))
+            phase_groups.append((phase, event_indices, phase_dt))
         groups.append((grid, phase_groups))
     return groups
 

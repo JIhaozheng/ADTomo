@@ -50,8 +50,8 @@ class Tomography(nn.Module):
     def forward(self, station_groups):
         residuals = []
         for grid, phase_groups in station_groups:
-            for phase, grid_event_indices, observed_phase_dt in phase_groups:
-                predicted = predict_travel_times(self.model, grid, phase, grid_event_indices)
+            for phase, event_indices, observed_phase_dt in phase_groups:
+                predicted = predict_travel_times(self.model, grid, phase, event_indices)
                 residuals.append(predicted - observed_phase_dt)
         residual = torch.cat(residuals)
         data_loss = residual.square().mean()

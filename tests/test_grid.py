@@ -22,13 +22,13 @@ coordinate_station_spherical = torch.tensor([-120.0, 35.0, 0.0], dtype=torch.flo
 coordinate_events_spherical = torch.tensor(
     [[-120.18, 34.90, 8.0], [-119.82, 35.08, 12.0], [-120.06, 35.22, 16.0]], dtype=torch.float64
 )
-coordinate_points_lonlatdepth = torch.cat([coordinate_station_spherical[None], coordinate_events_spherical], dim=0)
+coordinate_points_spherical = torch.cat([coordinate_station_spherical[None], coordinate_events_spherical], dim=0)
 coordinate_points_ecef = spherical_to_ecef(
-    coordinate_points_lonlatdepth[:, 0], coordinate_points_lonlatdepth[:, 1], coordinate_points_lonlatdepth[:, 2]
+    coordinate_points_spherical[:, 0], coordinate_points_spherical[:, 1], coordinate_points_spherical[:, 2]
 )
 coordinate_lon, coordinate_lat, coordinate_depth = ecef_to_spherical(coordinate_points_ecef)
 assert torch.allclose(
-    torch.stack([coordinate_lon, coordinate_lat, coordinate_depth], dim=-1), coordinate_points_lonlatdepth, atol=1e-10
+    torch.stack([coordinate_lon, coordinate_lat, coordinate_depth], dim=-1), coordinate_points_spherical, atol=1e-10
 )
 
 coordinate_basis = local_basis(coordinate_station_spherical[0], coordinate_station_spherical[1])
