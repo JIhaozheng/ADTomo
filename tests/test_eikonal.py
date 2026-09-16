@@ -45,13 +45,13 @@ for source in ((25.0, 20.0), (25.2, 20.3), (25.1, 20.15)):
     slope = math.log(remainders[1] / remainders[0]) / math.log(0.1)
     assert 1.8 < slope < 2.2
 
-velocity_xyz = torch.full((41, 31, 21), velocity_km_s, dtype=torch.float64)
+velocity_dne = torch.full((21, 31, 41), velocity_km_s, dtype=torch.float64)
 source_xyz = torch.tensor([20.2, 15.3, 10.1], dtype=torch.float64)
-traveltime_3d = solve_eikonal3d(velocity_xyz, source_xyz, spacing_km)
-x_local, y_local, z_local = torch.meshgrid(
-    torch.arange(velocity_xyz.shape[0], dtype=torch.float64) * spacing_km,
-    torch.arange(velocity_xyz.shape[1], dtype=torch.float64) * spacing_km,
-    torch.arange(velocity_xyz.shape[2], dtype=torch.float64) * spacing_km,
+traveltime_3d = solve_eikonal3d(velocity_dne, source_xyz, spacing_km)
+z_local, y_local, x_local = torch.meshgrid(
+    torch.arange(velocity_dne.shape[0], dtype=torch.float64) * spacing_km,
+    torch.arange(velocity_dne.shape[1], dtype=torch.float64) * spacing_km,
+    torch.arange(velocity_dne.shape[2], dtype=torch.float64) * spacing_km,
     indexing="ij",
 )
 analytic_3d = torch.sqrt(
@@ -67,9 +67,9 @@ source_z_index = round(source_xyz[2].item())
 rows = [
     (traveltime_2d, analytic_2d, difference_2d, source_xy, "2-D"),
     (
-        traveltime_3d[:, :, source_z_index].T,
-        analytic_3d[:, :, source_z_index].T,
-        difference_3d[:, :, source_z_index].T,
+        traveltime_3d[source_z_index],
+        analytic_3d[source_z_index],
+        difference_3d[source_z_index],
         source_xyz[:2],
         f"3-D at Down={source_z_index} km",
     ),

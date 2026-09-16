@@ -33,12 +33,12 @@ for i in (1, 2):
         for k in (1, 2):
             plus = taylor_velocity.detach().clone()
             minus = taylor_velocity.detach().clone()
-            plus[i, j, k] += finite_difference_step
-            minus[i, j, k] -= finite_difference_step
+            plus[k, j, i] += finite_difference_step
+            minus[k, j, i] -= finite_difference_step
             plus_objective = solve_eikonal3d(plus, source, 1.0)[3, 4, 5]
             minus_objective = solve_eikonal3d(minus, source, 1.0)[3, 4, 5]
             finite_difference = (plus_objective - minus_objective).item() / (2.0 * finite_difference_step)
-            adjoint = taylor_velocity.grad[i, j, k].item()
+            adjoint = taylor_velocity.grad[k, j, i].item()
             source_corner_errors.append(abs(adjoint - finite_difference) / (abs(finite_difference) + 1e-12))
 assert statistics.median(source_corner_errors) < 1e-5
 assert max(source_corner_errors) < 1e-4

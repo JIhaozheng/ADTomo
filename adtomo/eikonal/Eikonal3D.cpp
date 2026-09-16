@@ -9,8 +9,8 @@
 #include <tuple>
 #include <vector>
 
-static inline int index3d(int i, int j, int k, int ny, int nz) {
-    return i * ny * nz + j * nz + k;
+static inline int index3d(int ix, int iy, int iz, int nx, int ny) {
+    return ix + nx * (iy + ny * iz);
 }
 
 struct SourceCell {
@@ -44,10 +44,10 @@ static SourceCell make_source_cell(int nx, int ny, int nz, double h, double x, d
         std::sqrt((x - ix1) * (x - ix1) + (y - jx1) * (y - jx1) + (z - kx0) * (z - kx0)) * h,
         std::sqrt((x - ix1) * (x - ix1) + (y - jx1) * (y - jx1) + (z - kx1) * (z - kx1)) * h};
     return {ix0, jx0, kx0, ix1, jx1, kx1,
-            {index3d(ix0, jx0, kx0, ny, nz), index3d(ix0, jx0, kx1, ny, nz),
-             index3d(ix0, jx1, kx0, ny, nz), index3d(ix0, jx1, kx1, ny, nz),
-             index3d(ix1, jx0, kx0, ny, nz), index3d(ix1, jx0, kx1, ny, nz),
-             index3d(ix1, jx1, kx0, ny, nz), index3d(ix1, jx1, kx1, ny, nz)},
+            {index3d(ix0, jx0, kx0, nx, ny), index3d(ix0, jx0, kx1, nx, ny),
+             index3d(ix0, jx1, kx0, nx, ny), index3d(ix0, jx1, kx1, nx, ny),
+             index3d(ix1, jx0, kx0, nx, ny), index3d(ix1, jx0, kx1, nx, ny),
+             index3d(ix1, jx1, kx0, nx, ny), index3d(ix1, jx1, kx1, nx, ny)},
             weights, distances};
 }
 
@@ -86,8 +86,8 @@ static void forward_sweep(
                     (i == ix1 && j == jx1 && k == kx0) || (i == ix1 && j == jx1 && k == kx1))
                     continue;
 
-                auto U = [&](int ii, int jj, int kk) { return u[index3d(ii, jj, kk, ny, nz)]; };
-                auto F = [&](int ii, int jj, int kk) { return f[index3d(ii, jj, kk, ny, nz)]; };
+                auto U = [&](int ii, int jj, int kk) { return u[index3d(ii, jj, kk, nx, ny)]; };
+                auto F = [&](int ii, int jj, int kk) { return f[index3d(ii, jj, kk, nx, ny)]; };
 
                 double uxmin = i == 0 ? U(i + 1, j, k)
                                       : (i == nx - 1 ? U(i - 1, j, k)
@@ -99,7 +99,7 @@ static void forward_sweep(
                                       : (k == nz - 1 ? U(i, j, k - 1)
                                                     : std::min(U(i, j, k + 1), U(i, j, k - 1)));
                 double u_new = godunov_update(uxmin, uymin, uzmin, F(i, j, k), h);
-                u[index3d(i, j, k, ny, nz)] = std::min(u_new, u[index3d(i, j, k, ny, nz)]);
+                u[index3d(i, j, k, nx, ny)] = std::min(u_new, u[index3d(i, j, k, nx, ny)]);
             }
 }
 
@@ -124,7 +124,7 @@ static void solve_forward(double *u, const double *f, double h,
 
     for (int i = 0; i < nn; ++i) u[i] = 100000.0;
 
-    auto F = [&](int ii, int jj, int kk) { return f[index3d(ii, jj, kk, ny, nz)]; };
+    auto F = [&](int ii, int jj, int kk) { return f[index3d(ii, jj, kk, nx, ny)]; };
 
     double f000 = F(ix0, jx0, kx0);
     double f001 = F(ix0, jx0, kx1);
@@ -146,7 +146,7 @@ static void solve_forward(double *u, const double *f, double h,
 
     auto set_corner = [&](int ii, int jj, int kk, double fcorner) {
         double d = std::sqrt((x - ii) * (x - ii) + (y - jj) * (y - jj) + (z - kk) * (z - kk)) * h;
-        u[index3d(ii, jj, kk, ny, nz)] = (d / 6.0) * (fsrc + 4.0 * fmid + fcorner);
+        u[index3d(ii, jj, kk, nx, ny)] = (d / 6.0) * (fsrc + 4.0 * fmid + fcorner);
     };
 
     set_corner(ix0, jx0, kx0, f000);
@@ -183,11 +183,11 @@ static double adjoint_update(const double *T, const double *lam, const double *d
                                    int nx, int ny, int nz, int i, int j, int k, double h) {
     auto T_at = [&](int ii, int jj, int kk) -> double {
         if (ii < 0 || ii >= nx || jj < 0 || jj >= ny || kk < 0 || kk >= nz) return 0.0;
-        return T[index3d(ii, jj, kk, ny, nz)];
+        return T[index3d(ii, jj, kk, nx, ny)];
     };
     auto L_at = [&](int ii, int jj, int kk) -> double {
         if (ii < 0 || ii >= nx || jj < 0 || jj >= ny || kk < 0 || kk >= nz) return 0.0;
-        return lam[index3d(ii, jj, kk, ny, nz)];
+        return lam[index3d(ii, jj, kk, nx, ny)];
     };
 
     double a1m = 0.0, a1p = 0.0, a2m = 0.0, a2p = 0.0;
@@ -234,7 +234,7 @@ static double adjoint_update(const double *T, const double *lam, const double *d
          (b1p * L_at(i, j - 1, k) - b2m * L_at(i, j + 1, k)) / h +
          (c1p * L_at(i, j, k - 1) - c2m * L_at(i, j, k + 1)) / h);
 
-    return (delta[index3d(i, j, k, ny, nz)] + hadj) / coe;
+    return (delta[index3d(i, j, k, nx, ny)] + hadj) / coe;
 }
 
 static void adjoint_sweep(double *lam, const double *T, const double *delta,
@@ -247,7 +247,7 @@ static void adjoint_sweep(double *lam, const double *T, const double *delta,
     for (int i = std::get<0>(I); i != std::get<1>(I); i += std::get<2>(I))
         for (int j = std::get<0>(J); j != std::get<1>(J); j += std::get<2>(J))
             for (int k = std::get<0>(K); k != std::get<1>(K); k += std::get<2>(K))
-                lam[index3d(i, j, k, ny, nz)] =
+                lam[index3d(i, j, k, nx, ny)] =
                     adjoint_update(T, lam, delta, nx, ny, nz, i, j, k, h);
 }
 
@@ -309,23 +309,23 @@ static std::array<double, 8> source_adjoint(
         for (int j = std::max(0, jx0 - 1); j <= std::min(ny - 1, jx1 + 1); ++j) {
             for (int k = std::max(0, kx0 - 1); k <= std::min(nz - 1, kx1 + 1); ++k) {
                 if (is_source_corner(i, j, k, ix0, jx0, kx0, ix1, jx1, kx1)) continue;
-                const int row = index3d(i, j, k, ny, nz);
-                const auto U = [&](int ii, int jj, int kk) { return u[index3d(ii, jj, kk, ny, nz)]; };
+                const int row = index3d(i, j, k, nx, ny);
+                const auto U = [&](int ii, int jj, int kk) { return u[index3d(ii, jj, kk, nx, ny)]; };
                 const double uxmin = i == 0 ? U(i + 1, j, k)
                     : (i == nx - 1 ? U(i - 1, j, k) : std::min(U(i + 1, j, k), U(i - 1, j, k)));
                 const double uymin = j == 0 ? U(i, j + 1, k)
                     : (j == ny - 1 ? U(i, j - 1, k) : std::min(U(i, j + 1, k), U(i, j - 1, k)));
                 const double uzmin = k == 0 ? U(i, j, k + 1)
                     : (k == nz - 1 ? U(i, j, k - 1) : std::min(U(i, j, k + 1), U(i, j, k - 1)));
-                const int idx = i == 0 ? index3d(i + 1, j, k, ny, nz)
-                    : (i == nx - 1 ? index3d(i - 1, j, k, ny, nz)
-                    : (U(i + 1, j, k) > U(i - 1, j, k) ? index3d(i - 1, j, k, ny, nz) : index3d(i + 1, j, k, ny, nz)));
-                const int idy = j == 0 ? index3d(i, j + 1, k, ny, nz)
-                    : (j == ny - 1 ? index3d(i, j - 1, k, ny, nz)
-                    : (U(i, j + 1, k) > U(i, j - 1, k) ? index3d(i, j - 1, k, ny, nz) : index3d(i, j + 1, k, ny, nz)));
-                const int idz = k == 0 ? index3d(i, j, k + 1, ny, nz)
-                    : (k == nz - 1 ? index3d(i, j, k - 1, ny, nz)
-                    : (U(i, j, k + 1) > U(i, j, k - 1) ? index3d(i, j, k - 1, ny, nz) : index3d(i, j, k + 1, ny, nz)));
+                const int idx = i == 0 ? index3d(i + 1, j, k, nx, ny)
+                    : (i == nx - 1 ? index3d(i - 1, j, k, nx, ny)
+                    : (U(i + 1, j, k) > U(i - 1, j, k) ? index3d(i - 1, j, k, nx, ny) : index3d(i + 1, j, k, nx, ny)));
+                const int idy = j == 0 ? index3d(i, j + 1, k, nx, ny)
+                    : (j == ny - 1 ? index3d(i, j - 1, k, nx, ny)
+                    : (U(i, j + 1, k) > U(i, j - 1, k) ? index3d(i, j - 1, k, nx, ny) : index3d(i, j + 1, k, nx, ny)));
+                const int idz = k == 0 ? index3d(i, j, k + 1, nx, ny)
+                    : (k == nz - 1 ? index3d(i, j, k - 1, nx, ny)
+                    : (U(i, j, k + 1) > U(i, j, k - 1) ? index3d(i, j, k - 1, nx, ny) : index3d(i, j, k + 1, nx, ny)));
                 const auto subtract = [&](int id, double coefficient) {
                     const int corner = corner_index(id);
                     if (corner >= 0) result[corner] -= coefficient * lambda[row] * lambda_scale;
@@ -369,9 +369,9 @@ torch::Tensor eikonal_forward(torch::Tensor f, double h, double x, double y, dou
     TORCH_CHECK(f.dim() == 3, "f must be a 3D tensor");
     TORCH_CHECK(f.is_contiguous(), "Input tensors must be contiguous");
 
-    int nx = f.size(0);
+    int nx = f.size(2);
     int ny = f.size(1);
-    int nz = f.size(2);
+    int nz = f.size(0);
 
     auto u = torch::zeros_like(f);
     solve_forward(u.data_ptr<double>(), f.data_ptr<double>(), h, nx, ny, nz, x, y, z);
@@ -385,9 +385,9 @@ torch::Tensor eikonal_backward(torch::Tensor grad_u, torch::Tensor u, torch::Ten
     TORCH_CHECK(grad_u.is_contiguous() && u.is_contiguous() && f.is_contiguous(),
                 "All tensors must be contiguous");
 
-    int nx = u.size(0);
+    int nx = u.size(2);
     int ny = u.size(1);
-    int nz = u.size(2);
+    int nz = u.size(0);
 
     auto grad_f = torch::zeros_like(f);
     solve_backward(grad_f.data_ptr<double>(), grad_u.data_ptr<double>(), u.data_ptr<double>(),

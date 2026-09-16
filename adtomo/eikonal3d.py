@@ -26,7 +26,9 @@ class _Eikonal3DFunction(torch.autograd.Function):
 def solve_eikonal3d(velocity, source, spacing):
     """Solve the local 3-D eikonal equation for velocity in km/s.
 
-    Local fields and source locations both use ``(x_local, y_local, z_local)``
+    ``velocity`` and the returned travel-time field use tensor order
+    ``(z_local, y_local, x_local)`` = ``(Down, North, East)``. ``source``
+    remains a physical coordinate in ``(x_local, y_local, z_local)`` order
     = ``(East, North, Down)``.
     """
     source = torch.as_tensor(source, dtype=velocity.dtype, device=velocity.device)

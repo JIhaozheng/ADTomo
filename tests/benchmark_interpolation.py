@@ -18,12 +18,12 @@ base_field = torch.randn(shape, dtype=torch.float64)
 
 
 def sample_grid(traveltime, indices):
-    nx, ny, nz = traveltime.shape
+    nz, ny, nx = traveltime.shape
     query = torch.stack(
         [
-            2.0 * indices[:, 2] / (nz - 1) - 1.0,
-            2.0 * indices[:, 1] / (ny - 1) - 1.0,
             2.0 * indices[:, 0] / (nx - 1) - 1.0,
+            2.0 * indices[:, 1] / (ny - 1) - 1.0,
+            2.0 * indices[:, 2] / (nz - 1) - 1.0,
         ],
         dim=-1,
     ).view(1, -1, 1, 1, 3)
@@ -38,14 +38,14 @@ def sample_trilinear(traveltime, indices):
     x1, y1, z1 = upper.unbind(dim=1)
     wx, wy, wz = fraction.unbind(dim=1)
     return (
-        traveltime[x0, y0, z0] * (1 - wx) * (1 - wy) * (1 - wz)
-        + traveltime[x0, y0, z1] * (1 - wx) * (1 - wy) * wz
-        + traveltime[x0, y1, z0] * (1 - wx) * wy * (1 - wz)
-        + traveltime[x0, y1, z1] * (1 - wx) * wy * wz
-        + traveltime[x1, y0, z0] * wx * (1 - wy) * (1 - wz)
-        + traveltime[x1, y0, z1] * wx * (1 - wy) * wz
-        + traveltime[x1, y1, z0] * wx * wy * (1 - wz)
-        + traveltime[x1, y1, z1] * wx * wy * wz
+        traveltime[z0, y0, x0] * (1 - wx) * (1 - wy) * (1 - wz)
+        + traveltime[z1, y0, x0] * (1 - wx) * (1 - wy) * wz
+        + traveltime[z0, y1, x0] * (1 - wx) * wy * (1 - wz)
+        + traveltime[z1, y1, x0] * (1 - wx) * wy * wz
+        + traveltime[z0, y0, x1] * wx * (1 - wy) * (1 - wz)
+        + traveltime[z1, y0, x1] * wx * (1 - wy) * wz
+        + traveltime[z0, y1, x1] * wx * wy * (1 - wz)
+        + traveltime[z1, y1, x1] * wx * wy * wz
     )
 
 
@@ -65,7 +65,8 @@ def measure(sample, indices, repeats=10):
 
 print("events  max|value diff|  max|gradient diff|  grid fwd/bwd (ms)  manual fwd/bwd (ms)")
 for count in (1, 10, 100, 1000, 10000):
-    indices = 0.1 + torch.rand((count, 3), dtype=torch.float64) * (torch.tensor(shape, dtype=torch.float64) - 1.2)
+    extent_xyz = torch.tensor([shape[2], shape[1], shape[0]], dtype=torch.float64)
+    indices = 0.1 + torch.rand((count, 3), dtype=torch.float64) * (extent_xyz - 1.2)
     grid_field = base_field.clone().requires_grad_()
     manual_field = base_field.clone().requires_grad_()
     grid_values = sample_grid(grid_field, indices)
