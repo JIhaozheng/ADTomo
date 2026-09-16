@@ -15,11 +15,16 @@ global model with PyTorch interpolation.
 - longitude: degrees east; latitude: degrees north; depth: km positive down
 - velocity: km/s; time: seconds; Earth radius: 6371 km
 - global model tensor order: `(depth, latitude, longitude)`
-- local forward-field and physical-coordinate order: `(x_local, y_local, z_local)` = `(East, North, Down)`
+- local physical coordinates: `(x_local, y_local, z_local)` = `(East, North, Down)`
+- local scalar-field tensor order: `(z_local, y_local, x_local)` = `(Down, North, East)`
 - retained C++ kernels: CPU-only, `torch.float64`, and one isotropic spacing
 
-The Python and C++ local-field layouts are identical. This convention never
-applies to the global spherical model.
+The local Python and C++ field layouts are both DNE: a contiguous C++ buffer
+uses `flat_index = x + nx * (y + ny * z)`, so East is the fastest-varying
+axis. Source and event positions remain physical END coordinates. For PyTorch
+`grid_sample`, query coordinates are consequently `[East, North, Down]` while
+the sampled local field has DNE tensor order. None of these local conventions
+apply to the global spherical model.
 
 ## Workflow assumptions
 
