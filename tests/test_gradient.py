@@ -1,4 +1,5 @@
 import math
+import statistics
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -22,6 +23,25 @@ for epsilon in (1e-2, 1e-3):
     kernel_remainders.append(abs(perturbed.item() - taylor_objective.item() - epsilon * taylor_derivative))
 kernel_slope = math.log(kernel_remainders[1] / kernel_remainders[0]) / math.log(1e-3 / 1e-2)
 assert 1.8 < kernel_slope < 2.2
+
+# Each source-cell corner uses the discrete source adjoint and Simpson chain rule.
+source_corner_errors = []
+source = (1.2, 1.3, 1.1)
+finite_difference_step = 1e-4
+for i in (1, 2):
+    for j in (1, 2):
+        for k in (1, 2):
+            plus = taylor_velocity.detach().clone()
+            minus = taylor_velocity.detach().clone()
+            plus[i, j, k] += finite_difference_step
+            minus[i, j, k] -= finite_difference_step
+            plus_objective = solve_eikonal3d(plus, source, 1.0)[3, 4, 5]
+            minus_objective = solve_eikonal3d(minus, source, 1.0)[3, 4, 5]
+            finite_difference = (plus_objective - minus_objective).item() / (2.0 * finite_difference_step)
+            adjoint = taylor_velocity.grad[i, j, k].item()
+            source_corner_errors.append(abs(adjoint - finite_difference) / (abs(finite_difference) + 1e-12))
+assert statistics.median(source_corner_errors) < 1e-5
+assert max(source_corner_errors) < 1e-4
 
 lon = torch.arange(-120.8, -119.19, 0.1, dtype=torch.float64)
 lat = torch.arange(34.2, 35.81, 0.1, dtype=torch.float64)
