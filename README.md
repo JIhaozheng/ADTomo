@@ -12,18 +12,30 @@ pip install -e . --no-build-isolation
 
 ## Example
 
-Serial:
+Generate synthetic data:
 
 ```bash
-bash examples/run.sh
+python examples/00_gen_velocity.py
+python examples/01_gen_stations.py
+python examples/02_gen_events.py
+python examples/03_gen_picks.py
 ```
 
-Parallel:
+Run the inversion:
 
 ```bash
-NPROC=4 bash examples/run.sh
+bash examples/run_inversion.sh
 ```
 
+Run it in parallel:
+
 ```bash
-bash examples/run.sh --help
+NPROC=4 bash examples/run_inversion.sh
+```
+
+For an HPC job, set inversion parameters through the environment:
+
+```bash
+ITERATIONS=100 LEARNING_RATE=0.01 NPROC=8 \
+    bash examples/run_inversion.sh
 ```
