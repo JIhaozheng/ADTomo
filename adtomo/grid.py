@@ -97,16 +97,13 @@ class ForwardGrid:
         station_local = torch.zeros(3, dtype=reference.dtype, device=reference.device)
         events_local = ecef_to_local(events_ecef, station_ecef, basis)
 
-        if torch.any(events_local[:, 2] < -1e-8):
-            raise ValueError("ForwardGrid assumes the station is the top boundary, but an event lies above it")
-
+        local_points = torch.cat([station_local[None], events_local], dim=0)
         padding = 2.0 * self.spacing
-        x_min = torch.minimum(station_local[0], events_local[:, 0].min()) - padding
-        x_max = torch.maximum(station_local[0], events_local[:, 0].max()) + padding
-        y_min = torch.minimum(station_local[1], events_local[:, 1].min()) - padding
-        y_max = torch.maximum(station_local[1], events_local[:, 1].max()) + padding
-        z_min = torch.zeros((), dtype=reference.dtype, device=reference.device)
-        z_max = torch.maximum(station_local[2], events_local[:, 2].max()) + padding
+        minimum = local_points.amin(dim=0)
+        maximum = local_points.amax(dim=0)
+        x_min, x_max = minimum[0] - padding, maximum[0] + padding
+        y_min, y_max = minimum[1] - padding, maximum[1] + padding
+        z_min, z_max = minimum[2], maximum[2] + padding
         nx = max(2, math.ceil(float((x_max - x_min) / self.spacing)) + 1)
         ny = max(2, math.ceil(float((y_max - y_min) / self.spacing)) + 1)
         nz = max(2, math.ceil(float((z_max - z_min) / self.spacing)) + 1)
