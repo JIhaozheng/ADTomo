@@ -1,8 +1,9 @@
-"""Small functions connecting a velocity model, station grid, and observations."""
+"""Small functions connecting a 3-D velocity model, station grid, and observations."""
 
 import eikonal3d_op
 import torch
 import torch.nn as nn
+
 
 class _Eikonal3D(torch.autograd.Function):
     @staticmethod
@@ -20,6 +21,7 @@ class _Eikonal3D(torch.autograd.Function):
             grad_output.contiguous(), traveltime, slowness, ctx.spacing, *ctx.source
         )
         return grad_slowness, None, None, None, None
+
 
 def predict_travel_times(model, grid, phase, event_indices=None):
     """Travel times for P or S events on one station's cached forward grid."""

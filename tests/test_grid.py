@@ -6,7 +6,9 @@ import torch
 
 from adtomo.grid import (
     ForwardGrid,
+    RadialForwardGrid,
     VelocityModel,
+    VelocityModel1D,
     ecef_to_local,
     ecef_to_spherical,
     local_basis,
@@ -149,5 +151,33 @@ plt.colorbar(image, label="Synthetic field")
 plt.tight_layout()
 figure.savefig(FIGURES / "grid_interpolation.png", dpi=200)
 plt.show()
+
+# A depth-only model's 2-D (depth, range) forward grid must match the 3-D
+# constant-velocity analytic travel time to the same discretization tolerance
+# as the 3-D solver, and index_from_spherical must agree with the cached
+# build-time events_index for the same (unperturbed) event positions.
+radial_depth = torch.arange(-5.0, 20.1, 1.0, dtype=torch.float64)
+radial_velocity_km_s = 5.0
+radial_vp = torch.full_like(radial_depth, radial_velocity_km_s)
+radial_model = VelocityModel1D(radial_depth, radial_vp, radial_vp / 1.73, trainable=False)
+radial_station = torch.tensor([-122.80, 38.80, 0.0], dtype=torch.float64)
+radial_events = torch.tensor([[-122.79, 38.81, 5.0], [-122.75, 38.79, 10.0]], dtype=torch.float64)
+radial_grid = RadialForwardGrid(radial_station, radial_events, radial_model, spacing=0.5)
+assert radial_grid.r[0].item() == 0.0
+assert radial_grid.station_index[0].item() == 0.0
+
+radial_station_ecef = spherical_to_ecef(*radial_station)
+radial_basis = local_basis(radial_station[0], radial_station[1])
+radial_events_ecef = spherical_to_ecef(radial_events[:, 0], radial_events[:, 1], radial_events[:, 2])
+radial_events_local = ecef_to_local(radial_events_ecef, radial_station_ecef, radial_basis)
+radial_analytic = torch.linalg.vector_norm(radial_events_local, dim=-1) / radial_velocity_km_s
+
+from adtomo import predict_travel_times_2d
+
+radial_traveltime = predict_travel_times_2d(radial_model, radial_grid, "P")
+assert torch.isfinite(radial_traveltime).all()
+assert (radial_traveltime - radial_analytic).abs().max() < 2.0 * radial_grid.spacing / radial_velocity_km_s
+
+assert torch.allclose(radial_grid.index_from_spherical(radial_events), radial_grid.events_index, atol=1e-10)
 
 print("test_grid.py: passed")

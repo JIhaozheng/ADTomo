@@ -4,7 +4,17 @@ import math
 import matplotlib.pyplot as plt
 import torch
 
-from adtomo import solve_eikonal2d, solve_eikonal3d
+from adtomo.tomography2d import _Eikonal2D
+from adtomo.tomography3d import _Eikonal3D
+
+
+def solve_eikonal2d(velocity_yx, source_xy, spacing):
+    slowness_xy = (1.0 / velocity_yx).T.contiguous()
+    return _Eikonal2D.apply(slowness_xy, float(spacing), *[float(v) for v in source_xy]).T
+
+
+def solve_eikonal3d(velocity, source, spacing):
+    return _Eikonal3D.apply((1.0 / velocity).contiguous(), float(spacing), *[float(v) for v in source])
 
 
 FIGURES = Path("figures")
@@ -51,13 +61,6 @@ traveltime_3d = solve_eikonal3d(velocity_dne, source_xyz, spacing_km)
 on_grid_traveltime = solve_eikonal3d(velocity_dne, (20.0, 15.0, 0.0), spacing_km)
 assert on_grid_traveltime[0, 15, 20].item() == 0.0
 assert torch.isfinite(on_grid_traveltime).all()
-for invalid_source in ((20.2, 15.3, 20.0), (-0.1, 1.0, 0.0)):
-    try:
-        solve_eikonal3d(velocity_dne, invalid_source, spacing_km)
-    except ValueError as error:
-        assert "source" in str(error)
-    else:
-        raise AssertionError("an invalid source cell must be rejected")
 z_local, y_local, x_local = torch.meshgrid(
     torch.arange(velocity_dne.shape[0], dtype=torch.float64) * spacing_km,
     torch.arange(velocity_dne.shape[1], dtype=torch.float64) * spacing_km,

@@ -5,7 +5,22 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import torch
 
-from adtomo import ForwardGrid, Tomography, VelocityModel, predict_travel_times, smoothness, solve_eikonal3d
+from adtomo import (
+    ForwardGrid,
+    RadialForwardGrid,
+    Tomography,
+    Tomography2D,
+    VelocityModel,
+    VelocityModel1D,
+    predict_travel_times,
+    predict_travel_times_2d,
+    smoothness,
+)
+from adtomo.tomography3d import _Eikonal3D
+
+
+def solve_eikonal3d(velocity, source, spacing):
+    return _Eikonal3D.apply((1.0 / velocity).contiguous(), float(spacing), *[float(v) for v in source])
 
 
 FIGURES = Path("figures")
@@ -242,5 +257,71 @@ plt.legend()
 plt.tight_layout()
 figure.savefig(FIGURES / "taylor_remainders.png", dpi=200)
 plt.show()
+
+# Full 1-D Vp chain through RadialForwardGrid: sampling, 2-D eikonal solve,
+# event interpolation, loss.
+radial_depth = torch.arange(-5.0, 20.1, 1.0, dtype=torch.float64)
+radial_vp = torch.full_like(radial_depth, 5.0)
+radial_station = torch.tensor([-122.80, 38.80, 0.0], dtype=torch.float64)
+radial_events = torch.tensor([[-122.79, 38.81, 6.0]], dtype=torch.float64)
+radial_direction = torch.linspace(-0.01, 0.01, radial_vp.numel(), dtype=torch.float64)
+
+
+def radial_phase_time_loss(vp):
+    candidate = VelocityModel1D(radial_depth, vp, vp / 1.73, trainable=False)
+    grid = RadialForwardGrid(radial_station, radial_events, candidate, spacing=0.5)
+    predicted_phase_dt = predict_travel_times_2d(candidate, grid, "P")
+    return (predicted_phase_dt - 3.0).square().sum()
+
+
+radial_model = VelocityModel1D(radial_depth, radial_vp, radial_vp / 1.73, trainable=True)
+radial_grid = RadialForwardGrid(radial_station, radial_events, radial_model, spacing=0.5)
+radial_loss = (predict_travel_times_2d(radial_model, radial_grid, "P") - 3.0).square().sum()
+radial_loss.backward()
+assert radial_model.vp.grad is not None and torch.isfinite(radial_model.vp.grad).all()
+radial_derivative = (radial_model.vp.grad * radial_direction).sum().item()
+radial_base_vp = radial_model.vp.detach()
+radial_remainders = []
+for epsilon in epsilons:
+    radial_remainders.append(
+        abs(radial_phase_time_loss(radial_base_vp + epsilon * radial_direction).item() - radial_loss.item() - epsilon * radial_derivative)
+    )
+assert all(right < left for left, right in zip(radial_remainders, radial_remainders[1:]))
+radial_slopes = [
+    math.log(right / left) / math.log(next_epsilon / epsilon)
+    for left, right, epsilon, next_epsilon in zip(radial_remainders, radial_remainders[1:], epsilons, epsilons[1:])
+]
+assert 1.7 < sorted(radial_slopes)[len(radial_slopes) // 2] < 2.3
+
+# Event relocation: the autograd gradient of the objective with respect to an
+# event's longitude must match a finite-difference check.
+joint_model = VelocityModel1D(radial_depth, radial_vp.clone(), (radial_vp / 1.73).clone(), trainable=False)
+joint_initial_loc = radial_events[0] + torch.tensor([0.01, -0.01, -1.0], dtype=torch.float64)
+joint_grid = RadialForwardGrid(radial_station, joint_initial_loc[None], joint_model, spacing=0.5)
+joint_groups = [(joint_grid, [("P", torch.tensor([0]), torch.tensor([3.0], dtype=torch.float64))])]
+joint_tomography = Tomography2D(joint_model, joint_initial_loc[None], torch.zeros(1, dtype=torch.float64))
+joint_loss = joint_tomography(joint_groups)
+joint_loss.backward()
+assert joint_tomography.event_loc.grad is not None and torch.isfinite(joint_tomography.event_loc.grad).all()
+assert joint_tomography.event_time_correction.grad is not None
+assert torch.isfinite(joint_tomography.event_time_correction.grad).all()
+
+joint_finite_difference_step = 1e-5  # degrees
+
+
+def joint_data_loss(delta_lon):
+    with torch.no_grad():
+        joint_tomography.event_loc[0, 0] = joint_initial_loc[0] + delta_lon
+    loss = joint_tomography(joint_groups).item()
+    with torch.no_grad():
+        joint_tomography.event_loc[0, 0] = joint_initial_loc[0]
+    return loss
+
+
+joint_plus = joint_data_loss(joint_finite_difference_step)
+joint_minus = joint_data_loss(-joint_finite_difference_step)
+joint_finite_difference = (joint_plus - joint_minus) / (2.0 * joint_finite_difference_step)
+joint_adjoint = joint_tomography.event_loc.grad[0, 0].item()
+assert abs(joint_adjoint - joint_finite_difference) / (abs(joint_finite_difference) + 1e-12) < 1e-3
 
 print("test_gradient.py: passed")
