@@ -52,24 +52,31 @@ station_spherical = torch.tensor([-120.0, 35.0, 0.0], dtype=torch.float64)
 events_spherical = torch.tensor([[-119.9, 35.1, 8.0]], dtype=torch.float64)
 grid = ForwardGrid(station_spherical, events_spherical, model, spacing=5.0)
 padding = 2.0 * grid.spacing
+station_ecef = spherical_to_ecef(*station_spherical)
+station_basis = local_basis(station_spherical[0], station_spherical[1])
+events_ecef = spherical_to_ecef(
+    events_spherical[:, 0], events_spherical[:, 1], events_spherical[:, 2]
+)
+physical_points = torch.cat(
+    [torch.zeros((1, 3), dtype=torch.float64), ecef_to_local(events_ecef, station_ecef, station_basis)], dim=0
+)
+physical_minimum, physical_maximum = physical_points.amin(dim=0), physical_points.amax(dim=0)
 assert grid.z[0].item() == 0.0
 assert grid.station_index[2].item() == 0.0
 assert torch.all(grid.z >= 0.0)
-assert grid.z[-1] - grid.events_index[:, 2].max() * grid.spacing >= padding
-old_nz = math.ceil(float(grid.events_index[:, 2].max()) + 4.0) + 1
-assert len(grid.z) == old_nz - 2
+assert torch.allclose(grid.x[0], physical_minimum[0] - padding)
+assert torch.allclose(grid.y[0], physical_minimum[1] - padding)
+assert torch.allclose(grid.z[0], physical_minimum[2])
+assert grid.x[-1] >= physical_maximum[0] + padding
+assert grid.y[-1] >= physical_maximum[1] + padding
+assert grid.z[-1] >= physical_maximum[2] + padding
+old_nz = math.ceil(float((physical_maximum[2] - physical_minimum[2] + 2.0 * padding) / grid.spacing)) + 1
+assert len(grid.z) < old_nz
 
-try:
-    ForwardGrid(
-        station_spherical,
-        torch.tensor([[-120.0, 35.0, -1.0]], dtype=torch.float64),
-        model,
-        spacing=5.0,
-    )
-except ValueError as error:
-    assert "station is the top boundary" in str(error)
-else:
-    raise AssertionError("an event above the station must be rejected")
+shallower_events_spherical = torch.tensor([[-120.0, 35.0, -1.0]], dtype=torch.float64)
+shallower_grid = ForwardGrid(station_spherical, shallower_events_spherical, model, spacing=5.0)
+assert torch.allclose(shallower_grid.z[0], torch.tensor(-1.0, dtype=torch.float64), atol=1e-10)
+assert shallower_grid.station_index[2].item() > 0.0
 
 # This asymmetric linear field exposes both interpolation and axis-order errors.
 global_field = 0.01 * depth_grid + 0.1 * lat_grid + lon_grid

@@ -48,6 +48,13 @@ for source in ((25.0, 20.0), (25.2, 20.3), (25.1, 20.15)):
 velocity_dne = torch.full((21, 31, 41), velocity_km_s, dtype=torch.float64)
 source_xyz = torch.tensor([20.2, 15.3, 0.0], dtype=torch.float64)
 traveltime_3d = solve_eikonal3d(velocity_dne, source_xyz, spacing_km)
+for invalid_source in ((20.2, 15.3, 20.0), (-0.1, 1.0, 0.0)):
+    try:
+        solve_eikonal3d(velocity_dne, invalid_source, spacing_km)
+    except ValueError as error:
+        assert "source" in str(error)
+    else:
+        raise AssertionError("an invalid source cell must be rejected")
 z_local, y_local, x_local = torch.meshgrid(
     torch.arange(velocity_dne.shape[0], dtype=torch.float64) * spacing_km,
     torch.arange(velocity_dne.shape[1], dtype=torch.float64) * spacing_km,

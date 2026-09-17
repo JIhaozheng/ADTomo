@@ -58,6 +58,28 @@ for i in (1, 2):
 assert statistics.median(source_corner_errors) < 1e-5
 assert max(source_corner_errors) < 1e-4
 
+# The same source-adjoint contract applies when the source is interior in z.
+interior_velocity = torch.full((4, 5, 6), 5.0, dtype=torch.float64, requires_grad=True)
+interior_source = (1.2, 1.3, 1.1)
+interior_objective = solve_eikonal3d(interior_velocity, interior_source, 1.0)[3, 4, 5]
+interior_objective.backward()
+interior_errors = []
+for i in (1, 2):
+    for j in (1, 2):
+        for k in (1, 2):
+            plus = interior_velocity.detach().clone()
+            minus = interior_velocity.detach().clone()
+            plus[k, j, i] += finite_difference_step
+            minus[k, j, i] -= finite_difference_step
+            finite_difference = (
+                solve_eikonal3d(plus, interior_source, 1.0)[3, 4, 5]
+                - solve_eikonal3d(minus, interior_source, 1.0)[3, 4, 5]
+            ).item() / (2.0 * finite_difference_step)
+            adjoint = interior_velocity.grad[k, j, i].item()
+            interior_errors.append(abs(adjoint - finite_difference) / (abs(finite_difference) + 1e-12))
+assert statistics.median(interior_errors) < 1e-5
+assert max(interior_errors) < 1e-4
+
 lon = torch.arange(-120.8, -119.19, 0.1, dtype=torch.float64)
 lat = torch.arange(34.2, 35.81, 0.1, dtype=torch.float64)
 depth = torch.arange(-15.0, 50.1, 5.0, dtype=torch.float64)
