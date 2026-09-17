@@ -16,10 +16,13 @@ Generate the synthetic checkerboard dataset:
 
 ```bash
 python examples/00_gen_velocity.py
-python examples/01_gen_stations.py --num-stations 12
-python examples/02_gen_events.py --num-events 50
+python examples/01_gen_stations.py --num-stations 50
+python examples/02_gen_events.py --num-events 500
 python examples/03_gen_picks.py
 ```
+
+The model generator accepts direct global-coordinate wavelengths, for example
+`--wavelength-lon 0.5 --wavelength-lat 0.5 --wavelength-depth 20`.
 
 Run the inversion:
 
