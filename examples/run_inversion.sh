@@ -3,7 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-NPROC="${NPROC:-5}"
+NPROC="${NPROC:-1}"
 ITERATIONS="${ITERATIONS:-30}"
 LEARNING_RATE="${LEARNING_RATE:-0.03}"
 SPACING="${SPACING:-4.0}"
