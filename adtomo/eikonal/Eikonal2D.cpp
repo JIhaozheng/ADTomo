@@ -279,7 +279,7 @@ static void compute_source_corner_adjoint(double *res_out, const double *grad_u,
             const int row = gid(i, j, ny);
             collect_godunov_row(entries, u, m, n, i, j, ix0, jx0, ix1, jx1);
             for (const auto &entry : entries)
-                if (source_index.contains(entry.first))
+                if (source_index.find(entry.first) != source_index.end())
                     res_out[entry.first] -= entry.second * lam_scaled[row];
         }
     }

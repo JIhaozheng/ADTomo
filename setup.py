@@ -12,7 +12,6 @@ def cpp_ext(name, source):
     return CppExtension(
         name=name,
         sources=[source],
-        extra_compile_args={"cxx": ["-std=c++20"]},
         extra_link_args=[f"-Wl,-rpath,{torch_lib_dir}"],
         language="c++",
     )
