@@ -101,28 +101,24 @@ class ForwardGrid:
         padding = 2.0 * self.spacing
         minimum = local_points.amin(dim=0)
         maximum = local_points.amax(dim=0)
-        x_min, x_max = minimum[0] - padding, maximum[0] + padding
-        y_min, y_max = minimum[1] - padding, maximum[1] + padding
-        z_min, z_max = minimum[2], maximum[2] + padding
-        nx = max(2, math.ceil(float((x_max - x_min) / self.spacing)) + 1)
-        ny = max(2, math.ceil(float((y_max - y_min) / self.spacing)) + 1)
-        nz = max(2, math.ceil(float((z_max - z_min) / self.spacing)) + 1)
-        self.x = x_min + torch.arange(nx, dtype=reference.dtype, device=reference.device) * self.spacing
-        self.y = y_min + torch.arange(ny, dtype=reference.dtype, device=reference.device) * self.spacing
-        self.z = z_min + torch.arange(nz, dtype=reference.dtype, device=reference.device) * self.spacing
+        n_west = math.ceil(float((padding - minimum[0]) / self.spacing))
+        n_east = math.ceil(float((maximum[0] + padding) / self.spacing))
+        n_south = math.ceil(float((padding - minimum[1]) / self.spacing))
+        n_north = math.ceil(float((maximum[1] + padding) / self.spacing))
+        n_up = math.ceil(float(-minimum[2] / self.spacing))
+        n_down = math.ceil(float((maximum[2] + padding) / self.spacing))
+        self.x = torch.arange(-n_west, n_east + 1, dtype=reference.dtype, device=reference.device) * self.spacing
+        self.y = torch.arange(-n_south, n_north + 1, dtype=reference.dtype, device=reference.device) * self.spacing
+        self.z = torch.arange(-n_up, n_down + 1, dtype=reference.dtype, device=reference.device) * self.spacing
         self.shape = (len(self.z), len(self.y), len(self.x))
-        self.station_index = torch.stack(
-            [
-                (station_local[0] - x_min) / self.spacing,
-                (station_local[1] - y_min) / self.spacing,
-                (station_local[2] - z_min) / self.spacing,
-            ]
+        self.station_index = torch.tensor(
+            [n_west, n_south, n_up], dtype=reference.dtype, device=reference.device
         )
         self.events_index = torch.stack(
             [
-                (events_local[:, 0] - x_min) / self.spacing,
-                (events_local[:, 1] - y_min) / self.spacing,
-                (events_local[:, 2] - z_min) / self.spacing,
+                (events_local[:, 0] - self.x[0]) / self.spacing,
+                (events_local[:, 1] - self.y[0]) / self.spacing,
+                (events_local[:, 2] - self.z[0]) / self.spacing,
             ],
             dim=-1,
         )
