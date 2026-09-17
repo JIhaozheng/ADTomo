@@ -73,6 +73,10 @@ assert torch.allclose(grid.z[0], physical_minimum[2])
 assert grid.x[-1] >= physical_maximum[0] + padding
 assert grid.y[-1] >= physical_maximum[1] + padding
 assert grid.z[-1] >= physical_maximum[2] + padding
+assert 0.0 <= physical_minimum[0] - padding - grid.x[0] < grid.spacing
+assert 0.0 <= grid.x[-1] - (physical_maximum[0] + padding) < grid.spacing
+assert 0.0 <= physical_minimum[1] - padding - grid.y[0] < grid.spacing
+assert 0.0 <= grid.y[-1] - (physical_maximum[1] + padding) < grid.spacing
 old_nz = math.ceil(float((physical_maximum[2] - physical_minimum[2] + 2.0 * padding) / grid.spacing)) + 1
 assert len(grid.z) < old_nz
 

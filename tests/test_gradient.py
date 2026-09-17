@@ -58,6 +58,41 @@ for i in (1, 2):
 assert statistics.median(source_corner_errors) < 1e-5
 assert max(source_corner_errors) < 1e-4
 
+# A station-aligned source keeps the same source-cell adjoint contract.
+on_grid_velocity = torch.full((4, 5, 6), 5.0, dtype=torch.float64, requires_grad=True)
+on_grid_source = (1.0, 1.0, 0.0)
+on_grid_objective = solve_eikonal3d(on_grid_velocity, on_grid_source, 1.0)[3, 4, 5]
+on_grid_objective.backward()
+on_grid_derivative = (on_grid_velocity.grad * taylor_direction).sum().item()
+on_grid_remainders = []
+for epsilon in kernel_epsilons:
+    perturbed = solve_eikonal3d(on_grid_velocity.detach() + epsilon * taylor_direction, on_grid_source, 1.0)[3, 4, 5]
+    on_grid_remainders.append(abs(perturbed.item() - on_grid_objective.item() - epsilon * on_grid_derivative))
+on_grid_slopes = [
+    math.log(right / left) / math.log(next_epsilon / epsilon)
+    for left, right, epsilon, next_epsilon in zip(
+        on_grid_remainders, on_grid_remainders[1:], kernel_epsilons, kernel_epsilons[1:]
+    )
+]
+assert 1.8 < statistics.median(on_grid_slopes) < 2.2
+
+on_grid_corner_errors = []
+for i in (1, 2):
+    for j in (1, 2):
+        for k in (0, 1):
+            plus = on_grid_velocity.detach().clone()
+            minus = on_grid_velocity.detach().clone()
+            plus[k, j, i] += finite_difference_step
+            minus[k, j, i] -= finite_difference_step
+            finite_difference = (
+                solve_eikonal3d(plus, on_grid_source, 1.0)[3, 4, 5]
+                - solve_eikonal3d(minus, on_grid_source, 1.0)[3, 4, 5]
+            ).item() / (2.0 * finite_difference_step)
+            adjoint = on_grid_velocity.grad[k, j, i].item()
+            on_grid_corner_errors.append(abs(adjoint - finite_difference) / (abs(finite_difference) + 1e-12))
+assert statistics.median(on_grid_corner_errors) < 1e-5
+assert max(on_grid_corner_errors) < 1e-4
+
 # The same source-adjoint contract applies when the source is interior in z.
 interior_velocity = torch.full((4, 5, 6), 5.0, dtype=torch.float64, requires_grad=True)
 interior_source = (1.2, 1.3, 1.1)
