@@ -64,8 +64,11 @@ physical_minimum, physical_maximum = physical_points.amin(dim=0), physical_point
 assert grid.z[0].item() == 0.0
 assert grid.station_index[2].item() == 0.0
 assert torch.all(grid.z >= 0.0)
-assert torch.allclose(grid.x[0], physical_minimum[0] - padding)
-assert torch.allclose(grid.y[0], physical_minimum[1] - padding)
+assert torch.allclose(grid.station_index, grid.station_index.round(), atol=1e-12)
+ix, iy, iz = grid.station_index.round().long()
+assert grid.x[ix].item() == 0.0 and grid.y[iy].item() == 0.0 and grid.z[iz].item() == 0.0
+assert grid.x[0] <= physical_minimum[0] - padding
+assert grid.y[0] <= physical_minimum[1] - padding
 assert torch.allclose(grid.z[0], physical_minimum[2])
 assert grid.x[-1] >= physical_maximum[0] + padding
 assert grid.y[-1] >= physical_maximum[1] + padding
@@ -75,8 +78,14 @@ assert len(grid.z) < old_nz
 
 shallower_events_spherical = torch.tensor([[-120.0, 35.0, -1.0]], dtype=torch.float64)
 shallower_grid = ForwardGrid(station_spherical, shallower_events_spherical, model, spacing=5.0)
-assert torch.allclose(shallower_grid.z[0], torch.tensor(-1.0, dtype=torch.float64), atol=1e-10)
+assert shallower_grid.z[0] <= -1.0
+assert 0.0 <= -1.0 - shallower_grid.z[0] < shallower_grid.spacing
 assert shallower_grid.station_index[2].item() > 0.0
+assert torch.allclose(shallower_grid.station_index, shallower_grid.station_index.round(), atol=1e-12)
+ix, iy, iz = shallower_grid.station_index.round().long()
+assert shallower_grid.x[ix].item() == 0.0
+assert shallower_grid.y[iy].item() == 0.0
+assert shallower_grid.z[iz].item() == 0.0
 
 # This asymmetric linear field exposes both interpolation and axis-order errors.
 global_field = 0.01 * depth_grid + 0.1 * lat_grid + lon_grid

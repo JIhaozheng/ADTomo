@@ -48,6 +48,9 @@ for source in ((25.0, 20.0), (25.2, 20.3), (25.1, 20.15)):
 velocity_dne = torch.full((21, 31, 41), velocity_km_s, dtype=torch.float64)
 source_xyz = torch.tensor([20.2, 15.3, 0.0], dtype=torch.float64)
 traveltime_3d = solve_eikonal3d(velocity_dne, source_xyz, spacing_km)
+on_grid_traveltime = solve_eikonal3d(velocity_dne, (20.0, 15.0, 0.0), spacing_km)
+assert on_grid_traveltime[0, 15, 20].item() == 0.0
+assert torch.isfinite(on_grid_traveltime).all()
 for invalid_source in ((20.2, 15.3, 20.0), (-0.1, 1.0, 0.0)):
     try:
         solve_eikonal3d(velocity_dne, invalid_source, spacing_km)
