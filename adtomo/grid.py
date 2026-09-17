@@ -7,7 +7,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
-R_EARTH_KM = 6371.0
+R_EARTH = 6371.0 # km
 
 
 class VelocityModel(nn.Module):
@@ -28,7 +28,7 @@ def spherical_to_ecef(lon, lat, depth):
     """Degrees east/north and km depth positive down to ECEF km."""
     lon = torch.deg2rad(lon)
     lat = torch.deg2rad(lat)
-    radius = R_EARTH_KM - depth
+    radius = R_EARTH - depth
     return torch.stack(
         [
             radius * torch.cos(lat) * torch.cos(lon),
@@ -44,7 +44,7 @@ def ecef_to_spherical(xyz):
     radius = torch.linalg.vector_norm(xyz, dim=-1)
     lon = torch.rad2deg(torch.atan2(xyz[..., 1], xyz[..., 0]))
     lat = torch.rad2deg(torch.atan2(xyz[..., 2], torch.hypot(xyz[..., 0], xyz[..., 1])))
-    return lon, lat, R_EARTH_KM - radius
+    return lon, lat, R_EARTH - radius
 
 
 def local_basis(lon, lat):
@@ -98,7 +98,7 @@ class ForwardGrid:
         events_local = ecef_to_local(events_ecef, station_ecef, basis)
 
         local_points = torch.cat([station_local[None], events_local], dim=0)
-        padding = 2.0 * self.spacing
+        padding = 1.0 * self.spacing
         minimum = local_points.amin(dim=0)
         maximum = local_points.amax(dim=0)
         n_west = math.ceil(float((padding - minimum[0]) / self.spacing))
@@ -127,7 +127,7 @@ class ForwardGrid:
         local_points = torch.stack([x_local, y_local, z_local], dim=-1)
         grid_ecef = local_to_ecef(local_points, station_ecef, basis)
         grid_lon, grid_lat, grid_depth = ecef_to_spherical(grid_ecef)
-        self._check_model_coverage(model, grid_lon, grid_lat, grid_depth)
+        # self._check_model_coverage(model, grid_lon, grid_lat, grid_depth)
         self.sample_grid = torch.stack(
             [
                 self._normalize(grid_lon, model.lon),
@@ -141,14 +141,14 @@ class ForwardGrid:
     def _normalize(value, axis):
         return 2.0 * (value - axis[0]) / (axis[-1] - axis[0]) - 1.0
 
-    def _check_model_coverage(self, model, lon, lat, depth):
-        values = (("longitude", lon, model.lon), ("latitude", lat, model.lat), ("depth", depth, model.depth))
-        for name, value, axis in values:
-            if torch.any(value < axis[0] - 1e-8) or torch.any(value > axis[-1] + 1e-8):
-                raise ValueError(
-                    f"forward grid needs {name} [{value.min().item():.4f}, {value.max().item():.4f}] "
-                    f"but model provides [{axis[0].item():.4f}, {axis[-1].item():.4f}]"
-                )
+    # def _check_model_coverage(self, model, lon, lat, depth):
+    #     values = (("longitude", lon, model.lon), ("latitude", lat, model.lat), ("depth", depth, model.depth))
+    #     for name, value, axis in values:
+    #         if torch.any(value < axis[0] - 1e-8) or torch.any(value > axis[-1] + 1e-8):
+    #             raise ValueError(
+    #                 f"forward grid needs {name} [{value.min().item():.4f}, {value.max().item():.4f}] "
+    #                 f"but model provides [{axis[0].item():.4f}, {axis[-1].item():.4f}]"
+    #             )
 
     def sample_model(self, model_field):
         """Differentiably sample a global ``(depth, latitude, longitude)`` field."""

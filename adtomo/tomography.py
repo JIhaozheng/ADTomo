@@ -1,22 +1,39 @@
 """Small functions connecting a velocity model, station grid, and observations."""
 
+import eikonal3d_op
 import torch
 import torch.nn as nn
 
-from .eikonal3d import solve_eikonal3d
-from .grid import R_EARTH_KM
+class _Eikonal3D(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, slowness, spacing, x, y, z):
+        traveltime = eikonal3d_op.forward(slowness, spacing, x, y, z)
+        ctx.save_for_backward(traveltime, slowness)
+        ctx.spacing = spacing
+        ctx.source = (x, y, z)
+        return traveltime
 
+    @staticmethod
+    def backward(ctx, grad_output):
+        traveltime, slowness = ctx.saved_tensors
+        grad_slowness = eikonal3d_op.backward(
+            grad_output.contiguous(), traveltime, slowness, ctx.spacing, *ctx.source
+        )
+        return grad_slowness, None, None, None, None
 
 def predict_travel_times(model, grid, phase, event_indices=None):
     """Travel times for P or S events on one station's cached forward grid."""
     velocity = grid.sample_model({"P": model.vp, "S": model.vs}[phase.upper()])
-    traveltime = solve_eikonal3d(velocity, grid.station_index, grid.spacing)
+    slowness = 1.0 / velocity
+    source = grid.station_index
+    traveltime = _Eikonal3D.apply(slowness, grid.spacing, *source.tolist())
     return grid.sample_events(traveltime, event_indices=event_indices)
 
 
 def smoothness(field, lon, lat, depth):
     """Mean squared physical gradients of a (depth, latitude, longitude) field."""
-    radius = R_EARTH_KM - depth
+    R_EARTH = 6371.0 # km
+    radius = R_EARTH - depth
     dz_km = depth[1:] - depth[:-1]
     dlat = torch.deg2rad(lat[1:] - lat[:-1])
     dlon = torch.deg2rad(lon[1:] - lon[:-1])
