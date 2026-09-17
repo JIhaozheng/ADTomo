@@ -1,5 +1,6 @@
-"""Generate absolute P/S arrival timestamps from the true velocity model."""
+"""Preflight station grids and generate absolute P/S arrival timestamps."""
 
+import argparse
 from pathlib import Path
 from time import perf_counter
 
@@ -11,7 +12,7 @@ from adtomo import ForwardGrid, VelocityModel, predict_travel_times
 
 ROOT = Path(__file__).resolve().parent
 DATA = ROOT / "data"
-FORWARD_SPACING_KM = 5.0
+FORWARD_SPACING_KM = 2.0
 
 
 def require_inputs():
@@ -22,28 +23,48 @@ def require_inputs():
         raise FileNotFoundError(f"missing synthetic-data inputs:\n  {paths}\nrun steps 00, 01, and 02 first")
 
 
+def build_station_grids(model, stations, events, spacing):
+    """Build every station's ForwardGrid before generating any picks."""
+    events_spherical = torch.tensor(
+        events[["longitude", "latitude", "depth_km"]].to_numpy(), dtype=torch.float64
+    )
+    grids = []
+    for station in stations.itertuples(index=False):
+        station_spherical = torch.tensor(
+            [station.longitude, station.latitude, station.depth_km], dtype=torch.float64
+        )
+        try:
+            grid = ForwardGrid(station_spherical, events_spherical, model, spacing=spacing)
+        except ValueError as error:
+            raise ValueError(
+                f"ForwardGrid model coverage failed for station {station.station_id!r}: {error}\n"
+                "Reduce the acquisition region or enlarge the global velocity model."
+            ) from error
+        grids.append((station, grid))
+    return grids
+
+
+def parse_arguments():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--spacing", type=float, default=FORWARD_SPACING_KM, help="ForwardGrid spacing in km")
+    return parser.parse_args()
+
+
 def main():
+    args = parse_arguments()
+    if args.spacing <= 0:
+        raise ValueError("spacing must be positive")
     started = perf_counter()
     require_inputs()
     model = VelocityModel(**torch.load(DATA / "model_true.pt", weights_only=True), trainable=False)
     stations = pd.read_csv(DATA / "stations.csv", dtype={"station_id": str})
     events = pd.read_csv(DATA / "events.csv", dtype={"event_id": str})
-    events_spherical = torch.tensor(
-        events[["longitude", "latitude", "depth_km"]].to_numpy(), dtype=torch.float64
-    )
+    station_grids = build_station_grids(model, stations, events, args.spacing)
+    print(f"ForwardGrid coverage passed for {len(station_grids)} stations at {args.spacing:g} km spacing")
 
     picks = []
     with torch.no_grad():
-        for station in stations.itertuples(index=False):
-            station_spherical = torch.tensor(
-                [station.longitude, station.latitude, station.depth_km], dtype=torch.float64
-            )
-            grid = ForwardGrid(
-                station_spherical,
-                events_spherical,
-                model,
-                spacing=FORWARD_SPACING_KM,
-            )
+        for station, grid in station_grids:
             for phase in ("P", "S"):
                 travel_times = predict_travel_times(model, grid, phase)
                 for event, travel_time in zip(events.itertuples(index=False), travel_times.tolist()):

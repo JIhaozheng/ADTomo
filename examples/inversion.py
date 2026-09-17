@@ -311,7 +311,7 @@ def parse_arguments():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--iterations", type=int, default=30)
     parser.add_argument("--learning-rate", type=float, default=0.03)
-    parser.add_argument("--spacing", type=float, default=5.0, help="forward-grid spacing in km")
+    parser.add_argument("--spacing", type=float, default=2.0, help="forward-grid spacing in km")
     parser.add_argument("--lambda-vp", type=float, default=0.0, help="Vp smoothness weight")
     parser.add_argument("--lambda-vs", type=float, default=0.0, help="Vs smoothness weight")
     parser.add_argument("--alpha-vp", type=float, default=0.0, help="Vp damping weight")
