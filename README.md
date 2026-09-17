@@ -19,8 +19,10 @@ global model with PyTorch interpolation.
 - local scalar-field tensor order: `(z_local, y_local, x_local)` = `(Down, North, East)`
 - retained C++ kernels: CPU-only, `torch.float64`, and one isotropic spacing
 
-Each station defines the top of its local forward grid at `z = 0`. Horizontal
-padding is symmetric; vertical padding is applied only below the event region.
+Local forward grids are constructed from the station/event bounding box.
+Horizontal padding is applied on both sides. Since local `z` is positive Down,
+vertical padding is added only below the physical bounding box; no extra cells
+are added in the Up direction.
 
 The local Python and C++ field layouts are both DNE: a contiguous C++ buffer
 uses `flat_index = x + nx * (y + ny * z)`, so East is the fastest-varying
@@ -89,8 +91,7 @@ python setup.py build_ext --inplace
 pip install -e . --no-build-isolation
 ```
 
-The build compiles only `eikonal2d_op` and `eikonal3d_op`. A compiler with
-C++20 support is required.
+The build compiles only `eikonal2d_op` and `eikonal3d_op`.
 
 To run one test script from the test directory itself, build the extensions
 once, then use:
