@@ -40,38 +40,48 @@ class Tomography(nn.Module):
         self.lambda_vs = lambda_vs
         self.alpha_vp = alpha_vp
         self.alpha_vs = alpha_vs
+        self.data_sum = None
         self.data_loss = None
         self.smooth_vp = None
         self.smooth_vs = None
         self.damp_vp = None
         self.damp_vs = None
+        self.regularization_loss = None
         self.total_loss = None
 
-    def forward(self, station_groups):
+    def forward(self, station_groups, data_scale=None):
+        """Return the tomography objective for station groups.
+
+        In DistributedDataParallel, pass ``world_size / total_observations``
+        as ``data_scale`` so averaged rank gradients match serial MSE.
+        """
         residuals = []
         for grid, phase_groups in station_groups:
             for phase, event_indices, observed_phase_dt in phase_groups:
                 predicted = predict_travel_times(self.model, grid, phase, event_indices)
                 residuals.append(predicted - observed_phase_dt)
         residual = torch.cat(residuals)
-        data_loss = residual.square().mean()
+        data_sum = residual.square().sum()
+        data_loss = data_sum / residual.numel() if data_scale is None else data_scale * data_sum
         dvp = self.model.vp - self.vp0
         dvs = self.model.vs - self.vs0
         smooth_vp = smoothness(dvp, self.model.lon, self.model.lat, self.model.depth)
         smooth_vs = smoothness(dvs, self.model.lon, self.model.lat, self.model.depth)
         damp_vp = dvp.square().mean()
         damp_vs = dvs.square().mean()
-        loss = (
-            data_loss
-            + self.lambda_vp * smooth_vp
+        regularization_loss = (
+            self.lambda_vp * smooth_vp
             + self.lambda_vs * smooth_vs
             + self.alpha_vp * damp_vp
             + self.alpha_vs * damp_vs
         )
+        loss = data_loss + regularization_loss
+        self.data_sum = data_sum.detach()
         self.data_loss = data_loss.detach()
         self.smooth_vp = smooth_vp.detach()
         self.smooth_vs = smooth_vs.detach()
         self.damp_vp = damp_vp.detach()
         self.damp_vs = damp_vs.detach()
+        self.regularization_loss = regularization_loss.detach()
         self.total_loss = loss.detach()
         return loss
