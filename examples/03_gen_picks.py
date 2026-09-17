@@ -1,6 +1,7 @@
 """Generate absolute P/S arrival timestamps from the true velocity model."""
 
 from pathlib import Path
+from time import perf_counter
 
 import pandas as pd
 import torch
@@ -22,6 +23,7 @@ def require_inputs():
 
 
 def main():
+    started = perf_counter()
     require_inputs()
     model = VelocityModel(**torch.load(DATA / "model_true.pt", weights_only=True), trainable=False)
     stations = pd.read_csv(DATA / "stations.csv", dtype={"station_id": str})
@@ -58,7 +60,16 @@ def main():
 
     path = DATA / "picks.csv"
     pd.DataFrame(picks).to_csv(path, index=False)
-    print(f"saved {len(picks)} P/S phase picks to {path}")
+    p_count = sum(pick["phase_type"] == "P" for pick in picks)
+    s_count = len(picks) - p_count
+    expected = 2 * len(stations) * len(events)
+    if len(picks) != expected:
+        raise AssertionError(f"expected {expected} picks but generated {len(picks)}")
+    print(f"saved picks to {path}")
+    print(
+        f"stations={len(stations)} events={len(events)} P picks={p_count} "
+        f"S picks={s_count} total picks={len(picks)} runtime={perf_counter() - started:.2f}s"
+    )
 
 
 if __name__ == "__main__":
