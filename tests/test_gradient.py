@@ -299,7 +299,7 @@ joint_model = VelocityModel1D(radial_depth, radial_vp.clone(), (radial_vp / 1.73
 joint_initial_loc = radial_events[0] + torch.tensor([0.01, -0.01, -1.0], dtype=torch.float64)
 joint_grid = ForwardGrid2D(radial_station, joint_initial_loc[None], joint_model, spacing=0.5)
 joint_groups = [(joint_grid, [("P", torch.tensor([0]), torch.tensor([3.0], dtype=torch.float64))])]
-joint_tomography = Tomography2D(joint_model, joint_initial_loc[None], torch.zeros(1, dtype=torch.float64))
+joint_tomography = Tomography2D(joint_model, joint_initial_loc[None])
 joint_loss = joint_tomography(joint_groups)
 joint_loss.backward()
 assert joint_tomography.event_loc.grad is not None and torch.isfinite(joint_tomography.event_loc.grad).all()

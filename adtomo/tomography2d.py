@@ -77,36 +77,23 @@ def smoothness_1d(field, depth):
 class Tomography2D(nn.Module):
     """Arrival-time objective over a 1-D velocity model and trainable event parameters.
 
-    ``event_loc`` holds absolute (lon, lat, depth) per event; the origin time is
-    ``event_time_initial + event_time_correction`` so the trainable value stays
-    small. Freeze the velocity model (``VelocityModel1D(..., trainable=False)``)
-    for relocation only, or freeze the events (``trainable_location=False,
-    trainable_time=False``) for velocity only; train everything for a joint
-    inversion. Station groups are ``(grid, [(phase, event_indices,
-    observed_phase_time), ...])`` with ``event_indices`` indexing ``event_loc``.
+    ``event_loc`` holds absolute (lon, lat, depth) per event, initialized from
+    the catalog, and ``event_time_correction`` the origin-time shift, so
+    ``t_pred - t0_initial = dt0 + T`` against ``observed_phase_dt = phase_time
+    - t0_initial``. Toggle ``requires_grad`` on ``model.vp``, ``model.vs``,
+    ``event_loc``, ``event_time_correction`` to choose what is inverted.
+    Station groups are ``(grid, [(phase, event_indices, observed_phase_dt),
+    ...])`` with ``event_indices`` indexing ``event_loc``.
     """
 
-    def __init__(
-        self,
-        model,
-        event_loc,
-        event_time,
-        trainable_location=True,
-        trainable_time=True,
-        lambda_vp=0.0,
-        lambda_vs=0.0,
-        alpha_vp=0.0,
-        alpha_vs=0.0,
-    ):
+    def __init__(self, model, event_loc, lambda_vp=0.0, lambda_vs=0.0, alpha_vp=0.0, alpha_vs=0.0):
         super().__init__()
         self.model = model
         self.register_buffer("vp0", model.vp.detach().clone())
         self.register_buffer("vs0", model.vs.detach().clone())
-        event_loc = torch.as_tensor(event_loc, dtype=torch.float64).detach().reshape(-1, 3)
-        event_time = torch.as_tensor(event_time, dtype=torch.float64).detach().reshape(-1)
-        self.event_loc = nn.Parameter(event_loc.clone(), requires_grad=trainable_location)
-        self.register_buffer("event_time_initial", event_time.clone())
-        self.event_time_correction = nn.Parameter(torch.zeros_like(event_time), requires_grad=trainable_time)
+        event_loc = torch.as_tensor(event_loc, dtype=torch.float64).detach().reshape(-1, 3).contiguous()
+        self.event_loc = nn.Parameter(event_loc.clone())
+        self.event_time_correction = nn.Parameter(torch.zeros(len(event_loc), dtype=torch.float64))
         self.lambda_vp = lambda_vp
         self.lambda_vs = lambda_vs
         self.alpha_vp = alpha_vp
@@ -120,18 +107,14 @@ class Tomography2D(nn.Module):
         self.regularization_loss = None
         self.total_loss = None
 
-    @property
-    def event_time(self):
-        return self.event_time_initial + self.event_time_correction
-
-    def forward(self, station_groups, data_scale=None):
-        """Return the objective for station groups (see :class:`~adtomo.tomography3d.Tomography`)."""
+    def forward(self, station_groups, data_scale=None, regularization_scale=1.0):
+        """Return the objective (scaling conventions as in :class:`~adtomo.tomography3d.Tomography`)."""
         residuals = []
         for grid, phase_groups in station_groups:
-            for phase, event_indices, observed_phase_time in phase_groups:
+            for phase, event_indices, observed_phase_dt in phase_groups:
                 travel_time = predict_travel_times_2d(self.model, grid, phase, self.event_loc[event_indices])
-                predicted = self.event_time[event_indices] + travel_time
-                residuals.append(predicted - observed_phase_time)
+                predicted = travel_time + self.event_time_correction[event_indices]
+                residuals.append(predicted - observed_phase_dt)
         residual = torch.cat(residuals)
         data_sum = residual.square().sum()
         data_loss = data_sum / residual.numel() if data_scale is None else data_scale * data_sum
@@ -147,7 +130,7 @@ class Tomography2D(nn.Module):
             + self.alpha_vp * damp_vp
             + self.alpha_vs * damp_vs
         )
-        loss = data_loss + regularization_loss
+        loss = data_loss + regularization_scale * regularization_loss
         self.data_sum = data_sum.detach()
         self.data_loss = data_loss.detach()
         self.smooth_vp = smooth_vp.detach()

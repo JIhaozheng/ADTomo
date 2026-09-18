@@ -17,7 +17,6 @@ STATIONS = torch.tensor(
     dtype=torch.float64,
 )
 EVENTS = torch.tensor([[-122.79, 38.81, 6.0], [-122.81, 38.82, 4.0]], dtype=torch.float64)
-EVENT_TIME = torch.tensor([0.0, 10.0], dtype=torch.float64)
 SPACING = 0.5
 
 
@@ -31,16 +30,17 @@ def observe(model):
     for station in STATIONS:
         grid = ForwardGrid2D(station, EVENTS, model, spacing=SPACING)
         with torch.no_grad():
-            observed.append({phase: EVENT_TIME + predict_travel_times_2d(model, grid, phase, EVENTS) for phase in ("P", "S")})
+            observed.append({phase: predict_travel_times_2d(model, grid, phase, EVENTS) for phase in ("P", "S")})
     return observed
 
 
-def make_groups(model, initial_loc, observed):
+def make_groups(model, initial_loc, observed, time_shift=0.0):
+    """Phase groups hold phase_time - t0_initial; shifting t0_initial by -time_shift adds time_shift."""
     indices = torch.arange(len(EVENTS))
     return [
         (
             ForwardGrid2D(station, initial_loc, model, spacing=SPACING, padding=4.0),
-            [(phase, indices, times) for phase, times in station_observed.items()],
+            [(phase, indices, times + time_shift) for phase, times in station_observed.items()],
         )
         for station, station_observed in zip(STATIONS, observed)
     ]
@@ -64,7 +64,9 @@ def test_velocity_only_recovers_sampled_depths():
     model = true_model()
     observed = observe(model)
     initial = VelocityModel1D(DEPTH, model.vp.detach() * 1.1, model.vs.detach() * 1.1, trainable=True)
-    tomography = Tomography2D(initial, EVENTS, EVENT_TIME, trainable_location=False, trainable_time=False)
+    tomography = Tomography2D(initial, EVENTS)
+    tomography.event_loc.requires_grad_(False)
+    tomography.event_time_correction.requires_grad_(False)
     groups = make_groups(initial, EVENTS, observed)
 
     first, last = optimize(tomography, groups, 200, 0.02)
@@ -103,8 +105,8 @@ def test_location_only_recovers_perturbed_events():
     observed = observe(model)
     perturbation = torch.tensor([[0.015, -0.010, -1.5], [-0.010, 0.012, 1.0]], dtype=torch.float64)
     initial_loc = EVENTS + perturbation
-    tomography = Tomography2D(model, initial_loc, EVENT_TIME - 0.4)
-    groups = make_groups(model, initial_loc, observed)
+    tomography = Tomography2D(model, initial_loc)
+    groups = make_groups(model, initial_loc, observed, time_shift=0.4)
 
     first, last = optimize_lbfgs(tomography, groups, [tomography.event_loc, tomography.event_time_correction])
 

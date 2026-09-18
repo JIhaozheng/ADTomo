@@ -28,10 +28,11 @@ def main():
     if not model_path.is_file():
         raise FileNotFoundError(f"missing {model_path}; run 00_gen_velocity.py first")
     model = torch.load(model_path, weights_only=True)
-    if not (model["lon"][0] < args.lon_min < args.lon_max < model["lon"][-1]):
-        raise ValueError("station longitude region must lie strictly inside the velocity model")
-    if not (model["lat"][0] < args.lat_min < args.lat_max < model["lat"][-1]):
-        raise ValueError("station latitude region must lie strictly inside the velocity model")
+    if "lon" in model:  # a 1-D depth profile has no lateral extent to check
+        if not (model["lon"][0] < args.lon_min < args.lon_max < model["lon"][-1]):
+            raise ValueError("station longitude region must lie strictly inside the velocity model")
+        if not (model["lat"][0] < args.lat_min < args.lat_max < model["lat"][-1]):
+            raise ValueError("station latitude region must lie strictly inside the velocity model")
 
     rng = np.random.default_rng(args.seed)
     stations = pd.DataFrame({

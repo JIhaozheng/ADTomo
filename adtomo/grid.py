@@ -214,6 +214,9 @@ class ForwardGrid:
             if event_indices is not None:
                 index = index[event_indices]
         nx, ny, nz = len(self.x), len(self.y), len(self.z)
+        upper = torch.tensor([nx - 1, ny - 1, nz - 1], dtype=index.dtype, device=index.device)
+        if torch.any(index < 0) or torch.any(index > upper):
+            raise ValueError("current event location left the fixed 3-D forward grid")
         event_grid = torch.stack(
             [2.0 * index[:, 0] / (nx - 1) - 1.0, 2.0 * index[:, 1] / (ny - 1) - 1.0, 2.0 * index[:, 2] / (nz - 1) - 1.0],
             dim=-1,

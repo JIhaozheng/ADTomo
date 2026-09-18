@@ -64,3 +64,27 @@ def test_ddp_data_scale_matches_serial_gradients():
 
     assert torch.allclose((gradients[0][0] + gradients[1][0]) / 2, reference_model.vp.grad, atol=1e-11)
     assert torch.allclose((gradients[0][1] + gradients[1][1]) / 2, reference_model.vs.grad, atol=1e-11)
+
+
+def test_event_parameter_gradients_match_finite_differences():
+    model = make_model(trainable=False)
+    station = torch.tensor([-120.0, 35.0, 0.0], dtype=torch.float64)
+    true_event = torch.tensor([[-119.9, 35.1, 8.0]], dtype=torch.float64)
+    with torch.no_grad():
+        observed = predict_travel_times(model, ForwardGrid(station, true_event, model, spacing=5.0), "P")
+    initial_event = true_event + torch.tensor([[0.02, -0.01, -1.0]], dtype=torch.float64)
+    tomography = Tomography(model, event_loc=initial_event)
+    groups = [(ForwardGrid(station, initial_event, model, spacing=5.0), [("P", torch.tensor([0]), observed)])]
+
+    tomography(groups).backward()
+    assert torch.isfinite(tomography.event_loc.grad).all() and torch.isfinite(tomography.event_time_correction.grad).all()
+    assert model.vp.grad is None
+
+    step = 1e-5
+    losses = []
+    for sign in (1.0, -1.0):
+        with torch.no_grad():
+            tomography.event_loc[0, 0] = initial_event[0, 0] + sign * step
+        losses.append(tomography(groups).item())
+    finite_difference = (losses[0] - losses[1]) / (2.0 * step)
+    assert abs(tomography.event_loc.grad[0, 0].item() - finite_difference) / (abs(finite_difference) + 1e-12) < 1e-3
