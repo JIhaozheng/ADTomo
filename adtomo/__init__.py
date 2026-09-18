@@ -5,6 +5,7 @@ from .grid import (
     VelocityModel1D,
     ecef_to_local,
     ecef_to_spherical,
+    interpolate_1d,
     local_basis,
     local_to_ecef,
     spherical_to_ecef,

@@ -152,11 +152,13 @@ plt.tight_layout()
 figure.savefig(FIGURES / "grid_interpolation.png", dpi=200)
 plt.show()
 
-# A depth-only model's Cartesian (y, x) section is a true plane through Earth's
-# center, so a constant-velocity travel time must match the ECEF chord distance
-# over velocity to the solver's discretization tolerance; node depths must follow
-# d(x, y) = R - sqrt(x^2 + (R - d_s - y)^2); and index_from_spherical must agree
-# with the cached build-time events_index for the same event positions.
+# A depth-only model's Cartesian (y, x) section is the azimuthal reduction of
+# the 3-D East/North/Down frame: events map to (sqrt(E^2 + N^2), D) exactly,
+# node depths follow d(x, y) = R - sqrt(x^2 + (R - d_s - y)^2), and a
+# constant-velocity travel time matches the ECEF chord distance over velocity
+# to the solver's discretization tolerance.
+from adtomo import predict_travel_times_2d
+
 radial_depth = torch.arange(-5.0, 20.1, 1.0, dtype=torch.float64)
 radial_velocity_km_s = 5.0
 radial_vp = torch.full_like(radial_depth, radial_velocity_km_s)
@@ -164,27 +166,30 @@ radial_model = VelocityModel1D(radial_depth, radial_vp, radial_vp / 1.73, traina
 radial_station = torch.tensor([-122.80, 38.80, 0.0], dtype=torch.float64)
 radial_events = torch.tensor([[-122.79, 38.81, 5.0], [-122.75, 38.79, 10.0]], dtype=torch.float64)
 radial_grid = ForwardGrid2D(radial_station, radial_events, radial_model, spacing=0.5)
-assert radial_grid.x[0].item() == 0.0
-assert radial_grid.station_index[0].item() == 0.0
-radial_station_row = int(radial_grid.station_index[1].item())
-assert radial_grid.y[radial_station_row].item() == 0.0
-assert torch.allclose(radial_grid.depth[radial_station_row, 0], radial_station[2], atol=1e-9)
+radial_ix, radial_iy = radial_grid.station_index.long()
+assert radial_grid.x[radial_ix].item() == 0.0 and radial_grid.y[radial_iy].item() == 0.0
+assert radial_grid.x[0] < 0.0 and radial_grid.y[0].item() == 0.0
+assert radial_grid.grid_depth.shape == radial_grid.shape
+assert torch.allclose(radial_grid.grid_depth[radial_iy, radial_ix], radial_station[2], atol=1e-9)
 radial_expected_depth = 6371.0 - torch.sqrt(radial_grid.x.square() + (6371.0 - radial_station[2]).square())
-assert torch.allclose(radial_grid.depth[radial_station_row], radial_expected_depth, atol=1e-9)
-assert radial_grid.sample_model(radial_vp).shape == radial_grid.shape
+assert torch.allclose(radial_grid.grid_depth[radial_iy], radial_expected_depth, atol=1e-9)
+assert torch.all(radial_grid.grid_depth[radial_iy, radial_grid.x != 0.0] < 0.0)
 
 radial_station_ecef = spherical_to_ecef(*radial_station)
 radial_basis = local_basis(radial_station[0], radial_station[1])
 radial_events_ecef = spherical_to_ecef(radial_events[:, 0], radial_events[:, 1], radial_events[:, 2])
 radial_events_local = ecef_to_local(radial_events_ecef, radial_station_ecef, radial_basis)
+radial_expected_xy = torch.stack(
+    [torch.hypot(radial_events_local[:, 0], radial_events_local[:, 1]), radial_events_local[:, 2]], dim=-1
+)
+assert torch.allclose(radial_grid.event_xy(radial_events), radial_expected_xy, atol=1e-12)
+
+radial_velocity = radial_grid.sample_model(radial_vp, radial_depth)
+assert radial_velocity.shape == radial_grid.shape
+assert torch.allclose(radial_velocity, torch.full(radial_grid.shape, radial_velocity_km_s, dtype=torch.float64))
+radial_traveltime = predict_travel_times_2d(radial_model, radial_grid, "P", radial_events)
 radial_analytic = torch.linalg.vector_norm(radial_events_local, dim=-1) / radial_velocity_km_s
-
-from adtomo import predict_travel_times_2d
-
-radial_traveltime = predict_travel_times_2d(radial_model, radial_grid, "P")
 assert torch.isfinite(radial_traveltime).all()
 assert (radial_traveltime - radial_analytic).abs().max() < 2.0 * radial_grid.spacing / radial_velocity_km_s
-
-assert torch.allclose(radial_grid.index_from_spherical(radial_events), radial_grid.events_index, atol=1e-10)
 
 print("test_grid.py: passed")

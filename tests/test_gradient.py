@@ -270,13 +270,13 @@ radial_direction = torch.linspace(-0.01, 0.01, radial_vp.numel(), dtype=torch.fl
 def radial_phase_time_loss(vp):
     candidate = VelocityModel1D(radial_depth, vp, vp / 1.73, trainable=False)
     grid = ForwardGrid2D(radial_station, radial_events, candidate, spacing=0.5)
-    predicted_phase_dt = predict_travel_times_2d(candidate, grid, "P")
+    predicted_phase_dt = predict_travel_times_2d(candidate, grid, "P", radial_events)
     return (predicted_phase_dt - 3.0).square().sum()
 
 
 radial_model = VelocityModel1D(radial_depth, radial_vp, radial_vp / 1.73, trainable=True)
 radial_grid = ForwardGrid2D(radial_station, radial_events, radial_model, spacing=0.5)
-radial_loss = (predict_travel_times_2d(radial_model, radial_grid, "P") - 3.0).square().sum()
+radial_loss = (predict_travel_times_2d(radial_model, radial_grid, "P", radial_events) - 3.0).square().sum()
 radial_loss.backward()
 assert radial_model.vp.grad is not None and torch.isfinite(radial_model.vp.grad).all()
 radial_derivative = (radial_model.vp.grad * radial_direction).sum().item()

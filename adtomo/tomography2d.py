@@ -10,6 +10,8 @@ gradients flow through the grid's differentiable coordinate mapping and
 travel-time interpolation.
 """
 
+import math
+
 import eikonal2d_op
 import torch
 import torch.nn as nn
@@ -33,23 +35,37 @@ class _Eikonal2D(torch.autograd.Function):
         return grad_slowness, None, None, None
 
 
-def predict_travel_times_2d(model, grid, phase, event_loc=None, event_indices=None):
-    """Travel times for P or S events on one station's cached (y, x) section.
+def _check_solver_inputs(velocity, source, spacing):
+    """Reject inputs the C++ kernel would otherwise accept silently (it clamps the source cell)."""
+    if velocity.ndim != 2 or min(velocity.shape) < 2:
+        raise ValueError("velocity must have (y, x) shape with at least two nodes per axis")
+    if velocity.device.type != "cpu" or velocity.dtype != torch.float64:
+        raise ValueError("2-D eikonal solver requires a CPU float64 velocity field")
+    if not torch.isfinite(velocity).all() or torch.any(velocity <= 0):
+        raise ValueError("velocity must be finite and positive")
+    if not math.isfinite(spacing) or spacing <= 0:
+        raise ValueError("spacing must be finite and positive")
+    if source.numel() != 2:
+        raise ValueError("source must contain local (x, y) indices")
+    upper = torch.tensor([velocity.shape[1] - 1, velocity.shape[0] - 1], dtype=velocity.dtype)
+    if not torch.isfinite(source).all() or torch.any(source < 0) or torch.any(source >= upper):
+        raise ValueError("source must lie inside a valid 2-D source cell")
 
-    Pass ``event_loc`` (``(N, 3)`` lon/lat/depth, possibly trainable) to sample
-    the travel-time field at live event positions instead of the positions the
-    grid was built with; ``event_indices`` then selects rows of ``event_loc``.
+
+def predict_travel_times_2d(model, grid, phase, events_spherical):
+    """Travel times from one station's section to live event positions.
+
+    ``events_spherical`` is ``(N, 3)`` lon/lat/depth and may be a trainable
+    tensor: the station is the fixed eikonal source, and event gradients come
+    from the differentiable geometry and bilinear interpolation, never from the
+    C++ source position.
     """
-    velocity = grid.sample_model({"P": model.vp, "S": model.vs}[phase.upper()])
+    velocity = grid.sample_model({"P": model.vp, "S": model.vs}[phase.upper()], model.depth)
+    _check_solver_inputs(velocity, grid.station_index, grid.spacing)
     # eikonal2d_op works on an (x, y) layout; the grid stores fields as (y, x).
     slowness = (1.0 / velocity).T.contiguous()
-    source = grid.station_index
-    traveltime = _Eikonal2D.apply(slowness, grid.spacing, *source.tolist()).T
-    if event_loc is None:
-        return grid.sample_events(traveltime, event_indices=event_indices)
-    if event_indices is not None:
-        event_loc = event_loc[event_indices]
-    return grid.sample_events(traveltime, index=grid.index_from_spherical(event_loc))
+    traveltime = _Eikonal2D.apply(slowness, grid.spacing, *grid.station_index.tolist()).T
+    return grid.sample_events(traveltime, events_spherical)
 
 
 def smoothness_1d(field, depth):
@@ -113,9 +129,7 @@ class Tomography2D(nn.Module):
         residuals = []
         for grid, phase_groups in station_groups:
             for phase, event_indices, observed_phase_time in phase_groups:
-                travel_time = predict_travel_times_2d(
-                    self.model, grid, phase, event_loc=self.event_loc, event_indices=event_indices
-                )
+                travel_time = predict_travel_times_2d(self.model, grid, phase, self.event_loc[event_indices])
                 predicted = self.event_time[event_indices] + travel_time
                 residuals.append(predicted - observed_phase_time)
         residual = torch.cat(residuals)

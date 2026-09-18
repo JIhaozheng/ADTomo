@@ -31,7 +31,7 @@ def observe(model):
     for station in STATIONS:
         grid = ForwardGrid2D(station, EVENTS, model, spacing=SPACING)
         with torch.no_grad():
-            observed.append({phase: EVENT_TIME + predict_travel_times_2d(model, grid, phase) for phase in ("P", "S")})
+            observed.append({phase: EVENT_TIME + predict_travel_times_2d(model, grid, phase, EVENTS) for phase in ("P", "S")})
     return observed
 
 
@@ -85,7 +85,10 @@ def optimize_lbfgs(tomography, groups, parameters, rounds=5, max_iter=20):
 
     def closure():
         optimizer.zero_grad()
-        loss = tomography(groups)
+        try:
+            loss = tomography(groups)
+        except ValueError:  # line-search probe left the forward grid: barrier
+            return torch.full((), 1e6, dtype=torch.float64)
         loss.backward()
         return loss
 

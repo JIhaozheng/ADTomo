@@ -44,7 +44,7 @@ def synthetic_arrivals(model, event_loc, event_time):
     for station in STATIONS:
         grid = ForwardGrid2D(station, event_loc, model, spacing=SPACING_KM)
         with torch.no_grad():
-            observed.append({phase: event_time + predict_travel_times_2d(model, grid, phase) for phase in ("P", "S")})
+            observed.append({phase: event_time + predict_travel_times_2d(model, grid, phase, event_loc) for phase in ("P", "S")})
     return observed
 
 
@@ -88,7 +88,12 @@ def run_lbfgs(tomography, groups, parameters, rounds=10, max_iter=20):
 
     def closure():
         optimizer.zero_grad()
-        loss = tomography(groups)
+        try:
+            loss = tomography(groups)
+        except ValueError:
+            # A line-search probe stepped an event outside its station's fixed
+            # forward grid; a large loss makes the Wolfe search backtrack.
+            return torch.full((), 1e6, dtype=torch.float64)
         loss.backward()
         for parameter in parameters:
             assert parameter.grad is not None and torch.isfinite(parameter.grad).all()
