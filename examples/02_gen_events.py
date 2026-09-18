@@ -21,8 +21,7 @@ KM_PER_DEGREE = 111.19
 
 def plot_geometry(model, stations, events, initial, args):
     figure, axis = plt.subplots(figsize=(7, 6), constrained_layout=True)
-    if "lon" in model:
-        axis.plot([model["lon"][0], model["lon"][-1], model["lon"][-1], model["lon"][0], model["lon"][0]], [model["lat"][0], model["lat"][0], model["lat"][-1], model["lat"][-1], model["lat"][0]], "k-", label="model boundary")
+    axis.plot([model["lon"][0], model["lon"][-1], model["lon"][-1], model["lon"][0], model["lon"][0]], [model["lat"][0], model["lat"][0], model["lat"][-1], model["lat"][-1], model["lat"][0]], "k-", label="model boundary")
     axis.plot([args.lon_min, args.lon_max, args.lon_max, args.lon_min, args.lon_min], [args.lat_min, args.lat_min, args.lat_max, args.lat_max, args.lat_min], "--", color="gray", label="acquisition region")
     scatter = axis.scatter(events.longitude, events.latitude, c=events.depth_km, cmap="viridis", s=22, label="true events")
     if args.location_noise_km > 0:
@@ -58,11 +57,10 @@ def main():
         raise FileNotFoundError("run 00_gen_velocity.py and 01_gen_stations.py first")
     model = torch.load(model_path, weights_only=True)
     stations = pd.read_csv(stations_path, dtype={"station_id": str})
-    if "lon" in model:  # a 1-D depth profile has no lateral extent to check
-        if not (model["lon"][0] < args.lon_min < args.lon_max < model["lon"][-1]):
-            raise ValueError("event longitude region must lie strictly inside the velocity model")
-        if not (model["lat"][0] < args.lat_min < args.lat_max < model["lat"][-1]):
-            raise ValueError("event latitude region must lie strictly inside the velocity model")
+    if not (model["lon"][0] < args.lon_min < args.lon_max < model["lon"][-1]):
+        raise ValueError("event longitude region must lie strictly inside the velocity model")
+    if not (model["lat"][0] < args.lat_min < args.lat_max < model["lat"][-1]):
+        raise ValueError("event latitude region must lie strictly inside the velocity model")
     if not (model["depth"][0] < args.depth_min < args.depth_max < model["depth"][-1]):
         raise ValueError("event depth region must lie strictly inside the velocity model")
 

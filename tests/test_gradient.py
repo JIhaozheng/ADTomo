@@ -146,7 +146,7 @@ global_direction = torch.linspace(-0.01, 0.01, taylor_model.vp.numel(), dtype=to
 
 
 def full_phase_time_loss(candidate):
-    predicted_phase_dt = predict_travel_times(candidate, taylor_grid, "P")
+    predicted_phase_dt = predict_travel_times(candidate, taylor_grid, "P", events_spherical)
     return (predicted_phase_dt - 3.0).square().sum()
 
 
@@ -182,12 +182,12 @@ station_groups = [
         ],
     )
 ]
-data_only = Tomography(objective_model)
+data_only = Tomography(objective_model, events_spherical)
 data_only_loss = data_only(station_groups)
 direct_residual = torch.cat(
     [
-        predict_travel_times(objective_model, objective_grid, "P") - 3.0,
-        predict_travel_times(objective_model, objective_grid, "S") - 5.0,
+        predict_travel_times(objective_model, objective_grid, "P", events_spherical) - 3.0,
+        predict_travel_times(objective_model, objective_grid, "S", events_spherical) - 5.0,
     ]
 )
 assert torch.allclose(data_only_loss, direct_residual.square().mean())
@@ -211,7 +211,7 @@ assert torch.allclose(coarse_smoothness, torch.tensor(depth_gradient**2, dtype=t
 assert torch.allclose(fine_smoothness, coarse_smoothness)
 
 constant_model = VelocityModel(lon, lat, depth, vp, vp / 1.73, trainable=True)
-constant_tomography = Tomography(constant_model, alpha_vp=0.5, alpha_vs=0.25)
+constant_tomography = Tomography(constant_model, events_spherical, alpha_vp=0.5, alpha_vs=0.25)
 with torch.no_grad():
     constant_model.vp += 0.2
     constant_model.vs -= 0.1
@@ -221,9 +221,7 @@ assert constant_tomography.smooth_vs.item() == 0.0
 assert constant_tomography.damp_vp.item() > 0.0
 assert constant_tomography.damp_vs.item() > 0.0
 
-regularized = Tomography(
-    objective_model, lambda_vp=0.5, lambda_vs=0.25, alpha_vp=0.125, alpha_vs=0.0625
-)
+regularized = Tomography(objective_model, events_spherical, lambda_vp=0.5, lambda_vs=0.25, alpha_vp=0.125, alpha_vs=0.0625)
 with torch.no_grad():
     objective_model.vp[2, 3, 4] += 0.2
     objective_model.vs[2, 3, 4] -= 0.1

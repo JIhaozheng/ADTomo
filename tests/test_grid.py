@@ -108,8 +108,9 @@ assert local_field.shape == (len(grid.z), len(grid.y), len(grid.x))
 local_coordinate_field = torch.arange(len(grid.z), dtype=torch.float64)[:, None, None]
 local_coordinate_field = local_coordinate_field + 10.0 * torch.arange(len(grid.y), dtype=torch.float64)[None, :, None]
 local_coordinate_field = local_coordinate_field + 100.0 * torch.arange(len(grid.x), dtype=torch.float64)[None, None, :]
-expected_event_value = 100.0 * grid.events_index[:, 0] + 10.0 * grid.events_index[:, 1] + grid.events_index[:, 2]
-assert torch.allclose(grid.sample_events(local_coordinate_field), expected_event_value, atol=1e-12)
+event_index = (grid.to_local(events_spherical) - torch.stack([grid.x[0], grid.y[0], grid.z[0]])) / grid.spacing
+expected_event_value = 100.0 * event_index[:, 0] + 10.0 * event_index[:, 1] + event_index[:, 2]
+assert torch.allclose(grid.sample_events(local_coordinate_field, events_spherical), expected_event_value, atol=1e-12)
 
 global_depth_index = int(torch.argmin((model.depth - 10.0).abs()))
 local_down_index = int(torch.argmin((grid.z - 10.0).abs()))
@@ -182,7 +183,7 @@ radial_events_local = ecef_to_local(radial_events_ecef, radial_station_ecef, rad
 radial_expected_xy = torch.stack(
     [torch.hypot(radial_events_local[:, 0], radial_events_local[:, 1]), radial_events_local[:, 2]], dim=-1
 )
-assert torch.allclose(radial_grid.event_xy(radial_events), radial_expected_xy, atol=1e-12)
+assert torch.allclose(radial_grid.to_section(radial_events), radial_expected_xy, atol=1e-12)
 
 radial_velocity = radial_grid.sample_model(radial_vp, radial_depth)
 assert radial_velocity.shape == radial_grid.shape

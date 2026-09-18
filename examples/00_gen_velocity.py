@@ -1,4 +1,4 @@
-"""Generate the background and smooth checkerboard velocity models (3-D grid or 1-D depth profile)."""
+"""Generate the background and smooth checkerboard 3-D velocity models."""
 
 import argparse
 from pathlib import Path
@@ -31,43 +31,13 @@ def plot_checkerboard(initial, true, amplitude, path):
     plt.close(figure)
 
 
-def plot_profile(initial, true, path):
-    figure, axis = plt.subplots(figsize=(4.5, 6), constrained_layout=True)
-    for phase, color in (("vp", "tab:red"), ("vs", "tab:blue")):
-        axis.plot(initial[phase], initial["depth"], "--", color=color, label=f"{phase.upper()} initial")
-        axis.plot(true[phase], true["depth"], "-", color=color, label=f"{phase.upper()} true")
-    axis.invert_yaxis()
-    axis.set(xlabel="velocity (km/s)", ylabel="depth (km)", title="1-D depth profiles")
-    axis.legend()
-    axis.grid(alpha=0.3)
-    figure.savefig(path, dpi=180)
-    plt.close(figure)
-
-
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--model", choices=("3d", "1d"), default="3d", help="3-D lon/lat/depth grid or 1-D depth profile")
     parser.add_argument("--amplitude", type=float, default=0.05)
     parser.add_argument("--wavelength-lon", type=float, default=1.5, help="degrees longitude")
     parser.add_argument("--wavelength-lat", type=float, default=1.5, help="degrees latitude")
-    parser.add_argument("--wavelength-depth", type=float, default=40.0, help="km depth")
+    parser.add_argument("--wavelength-depth", type=float, default=20.0, help="km depth")
     args = parser.parse_args()
-
-    DATA.mkdir(exist_ok=True)
-    FIGURES.mkdir(exist_ok=True)
-    if args.model == "1d":
-        # Spherical depth only; the negative-depth halo covers forward-grid nodes above the surface.
-        depth = torch.arange(-15.0, 50.1, 2.5, dtype=torch.float64)
-        vp = 5.5 + 0.03 * depth.clamp_min(0.0)
-        vs = vp / 1.73
-        checker = torch.cos(2.0 * torch.pi * (depth - depth[0]) / args.wavelength_depth)
-        initial = {"depth": depth, "vp": vp, "vs": vs}
-        true = {"depth": depth, "vp": vp * (1 + args.amplitude * checker), "vs": vs * (1 + args.amplitude * checker)}
-        torch.save(initial, DATA / "model_initial.pt")
-        torch.save(true, DATA / "model_true.pt")
-        plot_profile(initial, true, FIGURES / "checkerboard.png")
-        print(f"saved 1-D models with {len(depth)} depth nodes to {DATA}; wavelength-depth={args.wavelength_depth} km")
-        return
 
     lon = torch.arange(-121.0, -117.5, 0.1, dtype=torch.float64)
     lat = torch.arange(33.5, 36.5, 0.1, dtype=torch.float64)
@@ -80,11 +50,11 @@ def main():
         * torch.cos(2.0 * torch.pi * (lat_grid - lat[0]) / args.wavelength_lat)
         * torch.cos(2.0 * torch.pi * (depth_grid - depth[0]) / args.wavelength_depth)
     )
-    assert checker.min() < 0 < checker.max() and checker.abs().max() <= 1.0
     initial = {"lon": lon, "lat": lat, "depth": depth, "vp": vp, "vs": vs}
     true = {"lon": lon, "lat": lat, "depth": depth, "vp": vp * (1 + args.amplitude * checker), "vs": vs * (1 + args.amplitude * checker)}
-    assert ((true["vp"] - vp) / vp).abs().lt(args.amplitude).any()
 
+    DATA.mkdir(exist_ok=True)
+    FIGURES.mkdir(exist_ok=True)
     torch.save(initial, DATA / "model_initial.pt")
     torch.save(true, DATA / "model_true.pt")
     plot_checkerboard(initial, true, args.amplitude, FIGURES / "checkerboard.png")

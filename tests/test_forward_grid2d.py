@@ -27,17 +27,17 @@ def travel_time_difference(spacing):
     grid_3d = ForwardGrid(STATION, EVENTS, model_3d, spacing)
     with torch.no_grad():
         t_2d = predict_travel_times_2d(model_1d, grid_2d, "P", EVENTS)
-        t_3d = predict_travel_times(model_3d, grid_3d, "P")
+        t_3d = predict_travel_times(model_3d, grid_3d, "P", EVENTS)
     return (t_2d - t_3d).abs().max().item(), t_3d.max().item()
 
 
-def test_event_xy_is_the_exact_reduction_of_the_3d_local_frame():
+def test_to_section_is_the_exact_reduction_of_the_3d_local_frame():
     model_1d, model_3d = models()
     grid_2d = ForwardGrid2D(STATION, EVENTS, model_1d, 1.0)
     grid_3d = ForwardGrid(STATION, EVENTS, model_3d, 1.0)
     local = ecef_to_local(spherical_to_ecef(EVENTS[:, 0], EVENTS[:, 1], EVENTS[:, 2]), grid_3d.station_ecef, grid_3d.basis)
     expected = torch.stack([torch.hypot(local[:, 0], local[:, 1]), local[:, 2]], dim=-1)
-    assert torch.allclose(grid_2d.event_xy(EVENTS), expected, atol=1e-12)
+    assert torch.allclose(grid_2d.to_section(EVENTS), expected, atol=1e-12)
 
 
 def test_2d_and_3d_travel_times_agree_and_converge():
