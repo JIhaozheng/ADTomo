@@ -7,7 +7,7 @@ import torch
 
 from adtomo import (
     ForwardGrid,
-    RadialForwardGrid,
+    ForwardGrid2D,
     Tomography,
     Tomography2D,
     VelocityModel,
@@ -258,7 +258,7 @@ plt.tight_layout()
 figure.savefig(FIGURES / "taylor_remainders.png", dpi=200)
 plt.show()
 
-# Full 1-D Vp chain through RadialForwardGrid: sampling, 2-D eikonal solve,
+# Full 1-D Vp chain through ForwardGrid2D: sampling, 2-D eikonal solve,
 # event interpolation, loss.
 radial_depth = torch.arange(-5.0, 20.1, 1.0, dtype=torch.float64)
 radial_vp = torch.full_like(radial_depth, 5.0)
@@ -269,13 +269,13 @@ radial_direction = torch.linspace(-0.01, 0.01, radial_vp.numel(), dtype=torch.fl
 
 def radial_phase_time_loss(vp):
     candidate = VelocityModel1D(radial_depth, vp, vp / 1.73, trainable=False)
-    grid = RadialForwardGrid(radial_station, radial_events, candidate, spacing=0.5)
+    grid = ForwardGrid2D(radial_station, radial_events, candidate, spacing=0.5)
     predicted_phase_dt = predict_travel_times_2d(candidate, grid, "P")
     return (predicted_phase_dt - 3.0).square().sum()
 
 
 radial_model = VelocityModel1D(radial_depth, radial_vp, radial_vp / 1.73, trainable=True)
-radial_grid = RadialForwardGrid(radial_station, radial_events, radial_model, spacing=0.5)
+radial_grid = ForwardGrid2D(radial_station, radial_events, radial_model, spacing=0.5)
 radial_loss = (predict_travel_times_2d(radial_model, radial_grid, "P") - 3.0).square().sum()
 radial_loss.backward()
 assert radial_model.vp.grad is not None and torch.isfinite(radial_model.vp.grad).all()
@@ -297,7 +297,7 @@ assert 1.7 < sorted(radial_slopes)[len(radial_slopes) // 2] < 2.3
 # event's longitude must match a finite-difference check.
 joint_model = VelocityModel1D(radial_depth, radial_vp.clone(), (radial_vp / 1.73).clone(), trainable=False)
 joint_initial_loc = radial_events[0] + torch.tensor([0.01, -0.01, -1.0], dtype=torch.float64)
-joint_grid = RadialForwardGrid(radial_station, joint_initial_loc[None], joint_model, spacing=0.5)
+joint_grid = ForwardGrid2D(radial_station, joint_initial_loc[None], joint_model, spacing=0.5)
 joint_groups = [(joint_grid, [("P", torch.tensor([0]), torch.tensor([3.0], dtype=torch.float64))])]
 joint_tomography = Tomography2D(joint_model, joint_initial_loc[None], torch.zeros(1, dtype=torch.float64))
 joint_loss = joint_tomography(joint_groups)

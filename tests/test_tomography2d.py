@@ -2,7 +2,7 @@
 
 import torch
 
-from adtomo import RadialForwardGrid, Tomography2D, VelocityModel1D, predict_travel_times_2d
+from adtomo import ForwardGrid2D, Tomography2D, VelocityModel1D, predict_travel_times_2d
 
 
 DEPTH = torch.arange(-5.0, 20.1, 1.0, dtype=torch.float64)
@@ -29,7 +29,7 @@ def true_model():
 def observe(model):
     observed = []
     for station in STATIONS:
-        grid = RadialForwardGrid(station, EVENTS, model, spacing=SPACING)
+        grid = ForwardGrid2D(station, EVENTS, model, spacing=SPACING)
         with torch.no_grad():
             observed.append({phase: EVENT_TIME + predict_travel_times_2d(model, grid, phase) for phase in ("P", "S")})
     return observed
@@ -39,7 +39,7 @@ def make_groups(model, initial_loc, observed):
     indices = torch.arange(len(EVENTS))
     return [
         (
-            RadialForwardGrid(station, initial_loc, model, spacing=SPACING, padding=4.0),
+            ForwardGrid2D(station, initial_loc, model, spacing=SPACING, padding=4.0),
             [(phase, indices, times) for phase, times in station_observed.items()],
         )
         for station, station_observed in zip(STATIONS, observed)

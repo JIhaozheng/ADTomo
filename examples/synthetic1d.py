@@ -2,7 +2,7 @@
 
 import torch
 
-from adtomo import RadialForwardGrid, VelocityModel1D, predict_travel_times_2d
+from adtomo import ForwardGrid2D, VelocityModel1D, predict_travel_times_2d
 
 
 SPACING_KM = 0.5
@@ -42,18 +42,18 @@ def synthetic_arrivals(model, event_loc, event_time):
     """Absolute P and S arrival times at every station for every event."""
     observed = []
     for station in STATIONS:
-        grid = RadialForwardGrid(station, event_loc, model, spacing=SPACING_KM)
+        grid = ForwardGrid2D(station, event_loc, model, spacing=SPACING_KM)
         with torch.no_grad():
             observed.append({phase: event_time + predict_travel_times_2d(model, grid, phase) for phase in ("P", "S")})
     return observed
 
 
 def station_groups(model, initial_loc, observed):
-    """One (depth, range) grid per station, sized around the initial event positions."""
+    """One Cartesian (y, x) section per station, sized around the initial event positions."""
     indices = torch.arange(len(initial_loc))
     return [
         (
-            RadialForwardGrid(station, initial_loc, model, spacing=SPACING_KM, padding=GRID_PADDING_KM),
+            ForwardGrid2D(station, initial_loc, model, spacing=SPACING_KM, padding=GRID_PADDING_KM),
             [(phase, indices, times) for phase, times in station_observed.items()],
         )
         for station, station_observed in zip(STATIONS, observed)

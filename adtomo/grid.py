@@ -199,14 +199,20 @@ class ForwardGrid:
         return F.grid_sample(traveltime[None, None], event_grid, mode="bilinear", align_corners=True)[0, 0, :, 0, 0]
 
 
-class RadialForwardGrid:
-    """A station-centered ``(depth, range)`` forward grid for a 1-D model.
+class ForwardGrid2D:
+    """A station-centered Cartesian vertical section for a depth-only 1-D model.
 
-    A depth-only Vp/Vs(depth) model has no horizontal variation, so a ray
-    between a station and any event stays in the vertical plane containing
-    both, and travel time is a function of ``(depth, horizontal range)``
-    alone. This lets one 2-D eikonal solve stand in for the 3-D solve that
-    :class:`ForwardGrid` needs for a full 3-D model.
+    Coordinates use ``(x, y)`` = (horizontal distance in the station-event
+    great-circle plane, Down) with the station at ``(0, 0)``; fields use
+    ``(y, x)`` tensor order. For a spherically symmetric model that plane
+    contains Earth's center, so the 3-D eikonal restricted to it is exactly the
+    2-D Cartesian eikonal, and one section serves every azimuth. Spherical
+    layers are curved in the section: a node's depth is
+    ``d(x, y) = R - sqrt(x^2 + (R - d_s - y)^2)``, obtained here through the
+    same local->ECEF->spherical mapping :class:`ForwardGrid` uses, and an event
+    at central angle ``delta`` and radius ``r_e`` sits at
+    ``(x_e, y_e) = (r_e sin(delta), r_s - r_e cos(delta))``, which is what
+    :func:`ecef_to_local` yields as ``(hypot(east, north), down)``.
 
     ``padding`` (km, default ``2 * spacing``) is the margin added around the
     build-time event positions; widen it when events will be relocated.
@@ -223,54 +229,54 @@ class RadialForwardGrid:
         ).reshape(-1, 3)
         self.station_ecef = spherical_to_ecef(*station_spherical)
         self.basis = local_basis(station_spherical[0], station_spherical[1])
-        self._model_depth = model.depth
-
-        station_depth = station_spherical[2]
-        events_range, events_depth = self._range_depth(events_spherical)
+        events_xy = self._section_xy(events_spherical)
 
         padding = 2.0 * self.spacing if padding is None else float(padding)
-        depth_min = torch.minimum(station_depth, events_depth.min()) - padding
-        depth_max = torch.maximum(station_depth, events_depth.max()) + padding
-        n_up = math.ceil(float((station_depth - depth_min) / self.spacing))
-        n_down = math.ceil(float((depth_max - station_depth) / self.spacing))
-        n_range = math.ceil(float((events_range.max() + padding) / self.spacing))
-
-        offsets = torch.arange(-n_up, n_down + 1, dtype=reference.dtype, device=reference.device)
-        self.depth = station_depth + offsets * self.spacing
-        self.r = torch.arange(0, n_range + 1, dtype=reference.dtype, device=reference.device) * self.spacing
-        self.shape = (len(self.depth), len(self.r))
-        # (x, y) = (range index, depth index), matching eikonal2d_op's (x, y) source convention.
+        station_y = torch.zeros(1, dtype=reference.dtype, device=reference.device)
+        y_points = torch.cat([station_y, events_xy[:, 1]])
+        n_x = math.ceil(float((events_xy[:, 0].max() + padding) / self.spacing))
+        n_up = math.ceil(float((padding - y_points.min()) / self.spacing))
+        n_down = math.ceil(float((y_points.max() + padding) / self.spacing))
+        self.x = torch.arange(0, n_x + 1, dtype=reference.dtype, device=reference.device) * self.spacing
+        self.y = torch.arange(-n_up, n_down + 1, dtype=reference.dtype, device=reference.device) * self.spacing
+        self.shape = (len(self.y), len(self.x))
+        # (x, y) = (horizontal index, down index), matching eikonal2d_op's (x, y) source convention.
         self.station_index = torch.tensor([0.0, n_up], dtype=reference.dtype, device=reference.device)
-        self.events_index = self._local_index(events_range, events_depth)
+        self.events_index = self._local_index(events_xy)
 
-    def _range_depth(self, events_spherical):
+        # Fixed velocity-sampling coordinates: every node's true spherical depth.
+        y_nodes, x_nodes = torch.meshgrid(self.y, self.x, indexing="ij")
+        local_points = torch.stack([x_nodes, torch.zeros_like(x_nodes), y_nodes], dim=-1)
+        _, _, self.depth = ecef_to_spherical(local_to_ecef(local_points, self.station_ecef, self.basis))
+        normalized_depth = ForwardGrid._normalize(self.depth, model.depth)
+        self.sample_grid = torch.stack([torch.zeros_like(normalized_depth), normalized_depth], dim=-1).view(1, -1, 1, 2)
+
+    def _section_xy(self, events_spherical):
+        """Event (x, y) in the section: (r_e sin(delta), r_s - r_e cos(delta))."""
         events_ecef = spherical_to_ecef(events_spherical[:, 0], events_spherical[:, 1], events_spherical[:, 2])
         events_local = ecef_to_local(events_ecef, self.station_ecef, self.basis)
-        events_range = torch.hypot(events_local[:, 0], events_local[:, 1])
-        return events_range, events_spherical[:, 2]
+        return torch.stack([torch.hypot(events_local[:, 0], events_local[:, 1]), events_local[:, 2]], dim=-1)
 
-    def _local_index(self, events_range, events_depth):
-        return torch.stack([events_range / self.spacing, (events_depth - self.depth[0]) / self.spacing], dim=-1)
+    def _local_index(self, events_xy):
+        return torch.stack(
+            [(events_xy[:, 0] - self.x[0]) / self.spacing, (events_xy[:, 1] - self.y[0]) / self.spacing], dim=-1
+        )
 
     def index_from_spherical(self, events_spherical):
         """Fractional grid indices for (possibly updated) event spherical coordinates."""
         events_spherical = torch.as_tensor(
             events_spherical, dtype=self.station_ecef.dtype, device=self.station_ecef.device
         ).reshape(-1, 3)
-        events_range, events_depth = self._range_depth(events_spherical)
-        return self._local_index(events_range, events_depth)
+        return self._local_index(self._section_xy(events_spherical))
 
     def sample_model(self, model_field_1d):
-        """Differentiably sample a global depth-only field onto (depth, range)."""
-        normalized_depth = ForwardGrid._normalize(self.depth, self._model_depth)
-        grid = torch.stack([torch.zeros_like(normalized_depth), normalized_depth], dim=-1).view(1, -1, 1, 2)
-        sampled = F.grid_sample(
-            model_field_1d[None, None, :, None], grid, mode="bilinear", padding_mode="border", align_corners=True
-        )[0, 0, :, 0]
-        return sampled[:, None].expand(-1, len(self.r))
+        """Differentiably sample a depth-only field at every node's spherical depth, as ``(y, x)``."""
+        return F.grid_sample(
+            model_field_1d[None, None, :, None], self.sample_grid, mode="bilinear", padding_mode="border", align_corners=True
+        )[0, 0, :, 0].view(self.shape)
 
     def sample_events(self, traveltime, event_indices=None, index=None):
-        """Sample a local ``(depth, range)`` field at events.
+        """Sample a local ``(y, x)`` field at events.
 
         Pass ``index`` (from :meth:`index_from_spherical`) to sample at updated
         event locations instead of the grid's cached, build-time positions.
@@ -279,8 +285,8 @@ class RadialForwardGrid:
             index = self.events_index
             if event_indices is not None:
                 index = index[event_indices]
-        nr, nz = len(self.r), len(self.depth)
+        nx, ny = len(self.x), len(self.y)
         event_grid = torch.stack(
-            [2.0 * index[:, 0] / (nr - 1) - 1.0, 2.0 * index[:, 1] / (nz - 1) - 1.0], dim=-1
+            [2.0 * index[:, 0] / (nx - 1) - 1.0, 2.0 * index[:, 1] / (ny - 1) - 1.0], dim=-1
         ).view(1, -1, 1, 2)
         return F.grid_sample(traveltime[None, None], event_grid, mode="bilinear", align_corners=True)[0, 0, :, 0]

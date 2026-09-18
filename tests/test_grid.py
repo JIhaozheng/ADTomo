@@ -6,7 +6,7 @@ import torch
 
 from adtomo.grid import (
     ForwardGrid,
-    RadialForwardGrid,
+    ForwardGrid2D,
     VelocityModel,
     VelocityModel1D,
     ecef_to_local,
@@ -152,19 +152,26 @@ plt.tight_layout()
 figure.savefig(FIGURES / "grid_interpolation.png", dpi=200)
 plt.show()
 
-# A depth-only model's 2-D (depth, range) forward grid must match the 3-D
-# constant-velocity analytic travel time to the same discretization tolerance
-# as the 3-D solver, and index_from_spherical must agree with the cached
-# build-time events_index for the same (unperturbed) event positions.
+# A depth-only model's Cartesian (y, x) section is a true plane through Earth's
+# center, so a constant-velocity travel time must match the ECEF chord distance
+# over velocity to the solver's discretization tolerance; node depths must follow
+# d(x, y) = R - sqrt(x^2 + (R - d_s - y)^2); and index_from_spherical must agree
+# with the cached build-time events_index for the same event positions.
 radial_depth = torch.arange(-5.0, 20.1, 1.0, dtype=torch.float64)
 radial_velocity_km_s = 5.0
 radial_vp = torch.full_like(radial_depth, radial_velocity_km_s)
 radial_model = VelocityModel1D(radial_depth, radial_vp, radial_vp / 1.73, trainable=False)
 radial_station = torch.tensor([-122.80, 38.80, 0.0], dtype=torch.float64)
 radial_events = torch.tensor([[-122.79, 38.81, 5.0], [-122.75, 38.79, 10.0]], dtype=torch.float64)
-radial_grid = RadialForwardGrid(radial_station, radial_events, radial_model, spacing=0.5)
-assert radial_grid.r[0].item() == 0.0
+radial_grid = ForwardGrid2D(radial_station, radial_events, radial_model, spacing=0.5)
+assert radial_grid.x[0].item() == 0.0
 assert radial_grid.station_index[0].item() == 0.0
+radial_station_row = int(radial_grid.station_index[1].item())
+assert radial_grid.y[radial_station_row].item() == 0.0
+assert torch.allclose(radial_grid.depth[radial_station_row, 0], radial_station[2], atol=1e-9)
+radial_expected_depth = 6371.0 - torch.sqrt(radial_grid.x.square() + (6371.0 - radial_station[2]).square())
+assert torch.allclose(radial_grid.depth[radial_station_row], radial_expected_depth, atol=1e-9)
+assert radial_grid.sample_model(radial_vp).shape == radial_grid.shape
 
 radial_station_ecef = spherical_to_ecef(*radial_station)
 radial_basis = local_basis(radial_station[0], radial_station[1])

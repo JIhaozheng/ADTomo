@@ -1,6 +1,6 @@
 from .grid import (
     ForwardGrid,
-    RadialForwardGrid,
+    ForwardGrid2D,
     VelocityModel,
     VelocityModel1D,
     ecef_to_local,

@@ -1,11 +1,13 @@
 """2-D eikonal tomography for a depth-only velocity model with trainable event parameters.
 
-A laterally invariant model ``v(z)`` makes travel time a function of
-``(depth, horizontal range)`` only, so each station's forward problem is a
-2-D eikonal solve on a :class:`~adtomo.grid.RadialForwardGrid` with the fixed
-station as the source. Event locations and origin-time corrections are
-trainable tensors whose gradients flow through the grid's differentiable
-coordinate mapping and travel-time interpolation.
+A spherically symmetric model ``v(depth)`` keeps every station-event ray in
+the great-circle plane through Earth's center, so each station's forward
+problem is a 2-D Cartesian eikonal solve on that section
+(:class:`~adtomo.grid.ForwardGrid2D`, station at the origin as the source,
+``v_2d(x, y) = v[d(x, y)]`` with ``d(x, y) = R - sqrt(x^2 + (R - d_s - y)^2)``).
+Event locations and origin-time corrections are trainable tensors whose
+gradients flow through the grid's differentiable coordinate mapping and
+travel-time interpolation.
 """
 
 import eikonal2d_op
@@ -32,14 +34,14 @@ class _Eikonal2D(torch.autograd.Function):
 
 
 def predict_travel_times_2d(model, grid, phase, event_loc=None, event_indices=None):
-    """Travel times for P or S events on one station's cached (depth, range) grid.
+    """Travel times for P or S events on one station's cached (y, x) section.
 
     Pass ``event_loc`` (``(N, 3)`` lon/lat/depth, possibly trainable) to sample
     the travel-time field at live event positions instead of the positions the
     grid was built with; ``event_indices`` then selects rows of ``event_loc``.
     """
     velocity = grid.sample_model({"P": model.vp, "S": model.vs}[phase.upper()])
-    # eikonal2d_op works on an (x, y) = (range, depth) layout; the grid stores (depth, range).
+    # eikonal2d_op works on an (x, y) layout; the grid stores fields as (y, x).
     slowness = (1.0 / velocity).T.contiguous()
     source = grid.station_index
     traveltime = _Eikonal2D.apply(slowness, grid.spacing, *source.tolist()).T
