@@ -11,6 +11,72 @@ import torch.nn.functional as F
 import torch.optim as optim
 
 
+R_EARTH = 6371.0
+
+
+def spherical_to_xyz(lon, lat, depth):
+    """Convert longitude/latitude in degrees and depth in km to ECEF xyz in km."""
+    lon = torch.deg2rad(lon)
+    lat = torch.deg2rad(lat)
+    radius = R_EARTH - depth
+    return torch.stack(
+        (
+            radius * torch.cos(lat) * torch.cos(lon),
+            radius * torch.cos(lat) * torch.sin(lon),
+            radius * torch.sin(lat),
+        ),
+        dim=-1,
+    )
+
+
+def xyz_to_spherical(x, y, z):
+    """Convert ECEF xyz in km to longitude, latitude, and depth."""
+    radius = torch.sqrt(x**2 + y**2 + z**2)
+    lon = torch.rad2deg(torch.atan2(y, x))
+    lat = torch.rad2deg(torch.atan2(z, torch.sqrt(x**2 + y**2)))
+    depth = R_EARTH - radius
+    return lon, lat, depth
+
+
+def spherical_trilinear(values, query, lon_axis, lat_axis, depth_axis):
+    """Sample values[longitude, latitude, depth] on spherical query points."""
+    nlon, nlat, ndepth = values.shape
+    lon_query, lat_query, depth_query = query.unbind(dim=-1)
+
+    lon_index = ((lon_query - lon_axis[0]) / (lon_axis[1] - lon_axis[0])).clamp(0, nlon - 1)
+    lat_index = ((lat_query - lat_axis[0]) / (lat_axis[1] - lat_axis[0])).clamp(0, nlat - 1)
+    depth_index = ((depth_query - depth_axis[0]) / (depth_axis[1] - depth_axis[0])).clamp(0, ndepth - 1)
+
+    lon0 = torch.floor(lon_index).long().clamp(0, nlon - 2)
+    lat0 = torch.floor(lat_index).long().clamp(0, nlat - 2)
+    depth0 = torch.floor(depth_index).long().clamp(0, ndepth - 2)
+    lon1, lat1, depth1 = lon0 + 1, lat0 + 1, depth0 + 1
+
+    wx = lon_index - lon0
+    wy = lat_index - lat0
+    wz = depth_index - depth0
+
+    c000 = values[lon0, lat0, depth0]
+    c100 = values[lon1, lat0, depth0]
+    c010 = values[lon0, lat1, depth0]
+    c110 = values[lon1, lat1, depth0]
+    c001 = values[lon0, lat0, depth1]
+    c101 = values[lon1, lat0, depth1]
+    c011 = values[lon0, lat1, depth1]
+    c111 = values[lon1, lat1, depth1]
+
+    return (
+        c000 * (1 - wx) * (1 - wy) * (1 - wz)
+        + c100 * wx * (1 - wy) * (1 - wz)
+        + c010 * (1 - wx) * wy * (1 - wz)
+        + c110 * wx * wy * (1 - wz)
+        + c001 * (1 - wx) * (1 - wy) * wz
+        + c101 * wx * (1 - wy) * wz
+        + c011 * (1 - wx) * wy * wz
+        + c111 * wx * wy * wz
+    )
+
+
 def interp3d(time_table, x, y, z, xgrid, ygrid, zgrid, h):
     nx = len(xgrid)
     ny = len(ygrid)
@@ -108,10 +174,24 @@ class Eikonal3D(torch.nn.Module):
         smooth_kernels=None,
         config=None,
         dtype=torch.float64,
+        lon=None,
+        lat=None,
+        depth=None,
     ):
         super().__init__()
         self.dtype = dtype
         self.num_event = num_event
+        self.spherical_model = lon is not None and lat is not None and depth is not None
+        if self.spherical_model:
+            self.lon = torch.as_tensor(lon, dtype=dtype).detach()
+            self.lat = torch.as_tensor(lat, dtype=dtype).detach()
+            self.depth = torch.as_tensor(depth, dtype=dtype).detach()
+
+            station_loc = torch.as_tensor(station_loc, dtype=dtype)
+            event_loc = torch.as_tensor(event_loc, dtype=dtype)
+            station_loc = spherical_to_xyz(station_loc[:, 0], station_loc[:, 1], station_loc[:, 2])
+            event_loc = spherical_to_xyz(event_loc[:, 0], event_loc[:, 1], event_loc[:, 2])
+
         self.event_loc = nn.Embedding(num_event, 3)
         self.event_time = nn.Embedding(num_event, 1)
         self.station_loc = nn.Embedding(num_station, 3)
@@ -131,12 +211,35 @@ class Eikonal3D(torch.nn.Module):
         self.ny = ny
         self.nz = nz
         self.h = h
-        self.xgrid = torch.arange(0, nx, dtype=dtype) * h
-        self.ygrid = torch.arange(0, ny, dtype=dtype) * h
-        self.zgrid = torch.arange(0, nz, dtype=dtype) * h
+        if self.spherical_model:
+            corners = spherical_to_xyz(
+                self.lon[[0, -1]].repeat_interleave(4),
+                self.lat[[0, -1]].repeat_interleave(2).repeat(2),
+                self.depth[[0, -1]].repeat(4),
+            )
+            extent = torch.cat((corners, station_loc, event_loc))
+            lower = extent.min(dim=0).values
+            upper = extent.max(dim=0).values
+            span = torch.tensor([(nx - 1) * h, (ny - 1) * h, (nz - 1) * h], dtype=dtype)
+            origin = (lower + upper - span) / 2
+            self.x0 = config.get("x0", origin[0].item())
+            self.y0 = config.get("y0", origin[1].item())
+            self.z0 = config.get("z0", origin[2].item())
+        else:
+            self.x0 = config.get("x0", 0.0)
+            self.y0 = config.get("y0", 0.0)
+            self.z0 = config.get("z0", 0.0)
+        self.xgrid = self.x0 + torch.arange(nx, dtype=dtype) * h
+        self.ygrid = self.y0 + torch.arange(ny, dtype=dtype) * h
+        self.zgrid = self.z0 + torch.arange(nz, dtype=dtype) * h
+
+        if self.spherical_model:
+            x, y, z = torch.meshgrid(self.xgrid, self.ygrid, self.zgrid, indexing="ij")
+            lon_query, lat_query, depth_query = xyz_to_spherical(x, y, z)
+            self.sample_spherical = torch.stack((lon_query, lat_query, depth_query), dim=-1)
 
         ## inverted variables: (vp, vs), or (vs, vpvs_ratio) when vpvs_ratio is given (vp input is then ignored);
-        ## each may be a scalar, 1D along depth (nz), or 3D (nx, ny, nz), and is expanded to 3D in velocity()
+        ## Parameters may be scalar, 1D, or 3D; spherical 3D tensors use (lon, lat, depth).
         ## Parameters are log velocity and log(Vp/Vs - bound): differences are relative changes, so every penalty is
         ## dimensionless, velocity stays positive and Vp/Vs stays above its physical bound.
         values = {"vs": vs, "vpvs_ratio": vpvs_ratio} if vpvs_ratio is not None else {"vp": vp, "vs": vs}
@@ -193,10 +296,26 @@ class Eikonal3D(torch.nn.Module):
         return t
 
     def velocity(self):
-        """Return the 3D (vp, vs) fields from the inversion parameters."""
-        m = {name: (self.offset[name] + torch.exp(x)).expand(self.nx, self.ny, self.nz) for name, x in self.params.items()}
+        """Return the Cartesian (vp, vs) fields for the Eikonal solver."""
+        m = {
+            name: self.offset[name] + torch.exp(parameter)
+            for name, parameter in self.params.items()
+        }
+        shape = (
+            (len(self.lon), len(self.lat), len(self.depth))
+            if self.spherical_model
+            else (self.nx, self.ny, self.nz)
+        )
+        m = {
+            name: value.expand(shape)
+            for name, value in m.items()
+        }
         vp = m["vpvs_ratio"] * m["vs"] if "vpvs_ratio" in m else m["vp"]
-        return vp, m["vs"]
+        vs = m["vs"]
+        if self.spherical_model:
+            vp = spherical_trilinear(vp, self.sample_spherical, self.lon, self.lat, self.depth)
+            vs = spherical_trilinear(vs, self.sample_spherical, self.lon, self.lat, self.depth)
+        return vp, vs
 
     def forward(self, picks):
         # %%
@@ -220,9 +339,9 @@ class Eikonal3D(torch.nn.Module):
             tt3d = Eikonal3DFunction.apply(
                 1.0 / v,
                 self.h,
-                station_loc[0] / self.h,
-                station_loc[1] / self.h,
-                station_loc[2] / self.h,
+                (station_loc[0] - self.x0) / self.h,
+                (station_loc[1] - self.y0) / self.h,
+                (station_loc[2] - self.z0) / self.h,
             )
             tt = self.interp(tt3d, event_loc[:, 0], event_loc[:, 1], event_loc[:, 2])  # travel time
             at = event_time.squeeze(-1) + tt  # arrival time
@@ -581,3 +700,4 @@ if __name__ == "__main__":
     ax[0, 0].legend()
     ax[0, 0].set_title("Station and Event Locations")
     plt.savefig(f"{data_path}/inversed3d_station_event_yz.png")
+
